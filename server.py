@@ -91,13 +91,14 @@ def get_cookie_and_name(clone_id):
                     return "Unknown", line_data
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่: เจาะฐานข้อมูล SQLite ของ WebView
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
     webview_dir = f"{data_dir}/app_webview/Default"
     cookies_db = f"{webview_dir}/Cookies"
     
-    # สร้างโฟลเดอร์รอกรณีแอปเพิ่งล้างใหม่
+    # 1. ถอนรากถอนโคนไอดีเก่า (ลบ XML เดิมทิ้ง เพื่อไม่ให้เกมแอบไปอ่าน)
+    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/com.roblox.client_preferences.xml'")
+    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
     os.system(f"su -c 'mkdir -p {webview_dir}'")
     
     safe_cookie = acc_cookie.replace("'", "''")
@@ -119,8 +120,7 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
-    # ลบไฟล์แคช journal ที่อาจทำให้ SQLite ล็อก (สำคัญมาก!)
-    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'") 
+    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
     os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
     
     uid_cmd = f"su -c 'stat -c %u {data_dir}'"
@@ -145,11 +145,28 @@ def heartbeat():
     data = request.json
     clone_id = data.get("clone_id")
     username = data.get("username") 
+    
     if clone_id:
+        # 2. ระบบสแกนตรวจสอบความถูกต้องของไอดี
+        expected_name, _ = get_cookie_and_name(clone_id)
+        
+        if username and expected_name and expected_name not in ["Normal_Mode", "Unknown"]:
+            # ถ้าชื่อในเกม ไม่ตรงกับ ชื่อในไฟล์คอมโบ (เทียบแบบไม่สนพิมพ์เล็กพิมพ์ใหญ่)
+            if username.lower() != expected_name.lower():
+                print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} has wrong account!{RESET}")
+                print(f"{RED}Expected: {expected_name} | In-Game: {username}{RESET}")
+                print(f"{YELLOW}Force killing app to clear stuck ID...{RESET}\n", flush=True)
+                
+                # บังคับรีเซ็ตเวลาเป็น 0 เพื่อให้ลูป Auto-rejoin จับเตะทิ้งทันที
+                clients_last_seen[clone_id] = 0
+                return "MISMATCH", 200
+        
+        # ถ้าชื่อถูกต้อง หรือเป็นโหมดธรรมดา ให้อัปเดตสถานะออนไลน์
         clients_last_seen[clone_id] = time.time()
         clients_retry_count[clone_id] = 0 
         if username:
             clients_usernames[clone_id] = username
+            
     return "OK", 200
 
 @app.route('/task_complete', methods=['POST'])
@@ -197,16 +214,13 @@ def auto_rejoin_checker():
                     
                     package_name = APPS_PACKAGE_NAMES.get(clone_id)
                     if package_name:
-                        # 1. ฆ่าแอปทิ้ง (จำเป็นมาก เพื่อให้ WebView คายแคช)
                         os.system(f"su -c 'am force-stop {package_name}'")
                         time.sleep(2)
                         
-                        # 2. เรียกใช้ฟังก์ชัน SQLite
                         acc_name, acc_cookie = get_cookie_and_name(clone_id)
                         if acc_cookie:
                             inject_cookie(package_name, clone_id, acc_cookie, acc_name)
                         
-                        # 3. เปิดเกม
                         map_id = get_map_id()
                         if map_id:
                             os.system(f"su -c 'am start -a android.intent.action.VIEW -d \"roblox://placeId={map_id}\" -p {package_name}'")
@@ -227,4 +241,4 @@ def auto_rejoin_checker():
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-                  
+    
