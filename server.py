@@ -19,7 +19,6 @@ YELLOW = '\033[93m'
 CYAN = '\033[96m'
 RESET = '\033[0m'
 
-# ชี้เป้าโปรแกรม sqlite3 ใน Termux เพื่อไม่ให้ Root ตาบอด
 SQLITE_BIN = "/data/data/com.termux/files/usr/bin/sqlite3"
 
 def load_apps():
@@ -55,7 +54,6 @@ def get_map_id():
             return f.read().strip()
     return ""
 
-# 🌟 ฟังก์ชันกรองเอาเฉพาะคุกกี้ (รองรับทุกโหมด)
 def extract_clean_cookie(raw_text):
     raw_text = raw_text.strip()
     if "_|WARNING" in raw_text:
@@ -102,26 +100,41 @@ def get_cookie_and_name(clone_id):
                 return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันฉีดคุกกี้ (แบบมี Debug ดัก Error)
+# 🌟 ฟังก์ชันฉีดคุกกี้อัปเกรดเป็น DUAL-CORE INJECT (ตามวิชา V.16)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
     webview_dir = f"{data_dir}/app_webview/Default"
     cookies_db = f"{webview_dir}/Cookies"
+    xml_dir = f"{data_dir}/shared_prefs"
+    xml_file = f"{xml_dir}/{package_name}_preferences.xml"
     
-    print(f"{YELLOW}  ↳ [DEBUG] ตรวจสอบฐานข้อมูล SQLite...{RESET}", flush=True)
+    print(f"{YELLOW}  ↳ [DEBUG] เริ่มกระบวนการ DUAL-CORE INJECT...{RESET}", flush=True)
+    
+    # 1. ล้างสมองเก่า (Native & Cache)
+    os.system(f"su -c 'rm -rf {data_dir}/shared_prefs/*'")
+    os.system(f"su -c 'rm -rf {data_dir}/files/appData/*'")
+    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
+    os.system(f"su -c 'rm -rf {webview_dir}/Cache/*'")
+    
+    # 2. แทรกซึม XML (สมองซีกซ้าย)
+    xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
+    tmp_xml = f"{CONFIG_DIR}/tmp_xml_{clone_id}.xml"
+    with open(tmp_xml, "w") as f:
+        f.write(xml_content)
+    
+    os.system(f"su -c 'mkdir -p {xml_dir}'")
+    os.system(f"su -c 'cp {tmp_xml} {xml_file}'")
+    os.system(f"rm -f {tmp_xml}")
+    
+    # 3. เตรียมฐานข้อมูล SQLite
     check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
-    
-    # ถ้าหา Database ไม่เจอ ให้เปิดล่อ 1 รอบ
     if not check_db:
-        print(f"{YELLOW}  ↳ [DEBUG] ไม่พบ Database! กำลังเปิดแอปเพื่อสร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
+        print(f"{YELLOW}  ↳ [DEBUG] ไม่พบโครงสร้าง Database! สร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
         os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
         time.sleep(7)
         os.system(f"su -c 'am force-stop {package_name}'")
         time.sleep(2)
-    
-    # ล้างแคชขยะ
-    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
-    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'")
+        
     os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
     
     safe_cookie = acc_cookie.replace("'", "''")
@@ -144,21 +157,19 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
     
-    # 🔎 รันคำสั่ง SQLite พร้อมดักจับ Error แบบเรียลไทม์
-    print(f"{YELLOW}  ↳ [DEBUG] กำลังรันคำสั่ง SQLite...{RESET}", flush=True)
+    # 4. แทรกซึม SQLite (สมองซีกขวา)
     sqlite_output = os.popen(f"su -c '{SQLITE_BIN} {cookies_db} < /data/local/tmp/inject_{clone_id}.sql' 2>&1").read().strip()
     
-    # ตรวจสอบว่าระบบมี Error พ่นออกมาไหม
     if "not found" in sqlite_output or "inaccessible" in sqlite_output or "Error" in sqlite_output:
-        print(f"{RED}  ↳ [ERROR] ❌ SQLite ล้มเหลว! สาเหตุ: {sqlite_output}{RESET}", flush=True)
+        print(f"{RED}  ↳ [ERROR] ❌ SQLite ล้มเหลว: {sqlite_output}{RESET}", flush=True)
     else:
-        print(f"{CYAN}  ↳ [SUCCESS] ✅ ฉีดคุกกี้ผ่าน SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
+        print(f"{CYAN}  ↳ [SUCCESS] ✅ ฉีดคุกกี้ XML + SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
     
-    # ซ่อมแซมกรรมสิทธิ์ไฟล์
+    # 5. ซ่อมแซมกรรมสิทธิ์ไฟล์ทั้งระบบ (ป้องกันเด้ง)
     app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
-        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {webview_dir}'")
-        os.system(f"su -c 'chmod 660 {cookies_db}'")
+        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {data_dir}'")
+        os.system(f"su -c 'chmod -R 777 {xml_dir}'")
     
     os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"rm -f {tmp_sql}")
@@ -179,7 +190,6 @@ def heartbeat():
     if clone_id:
         expected_name, _ = get_cookie_and_name(clone_id)
         
-        # ถ้าระบบจับได้ว่าไอดีเก่าคาเครื่อง ให้เตะทิ้งทันที
         if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
                 print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} ไอดีผิดตัว!{RESET}")
@@ -268,4 +278,4 @@ def auto_rejoin_checker():
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-    
+                
