@@ -100,7 +100,6 @@ def get_cookie_and_name(clone_id):
                 return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันฉีดคุกกี้อัปเกรดเป็น DUAL-CORE INJECT (ตามวิชา V.16)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
     webview_dir = f"{data_dir}/app_webview/Default"
@@ -108,15 +107,13 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     xml_dir = f"{data_dir}/shared_prefs"
     xml_file = f"{xml_dir}/{package_name}_preferences.xml"
     
-    print(f"{YELLOW}  ↳ [DEBUG] เริ่มกระบวนการ DUAL-CORE INJECT...{RESET}", flush=True)
+    print(f"{YELLOW}  [DEBUG] เริ่มกระบวนการ DUAL-CORE INJECT...{RESET}", flush=True)
     
-    # 1. ล้างสมองเก่า (Native & Cache)
     os.system(f"su -c 'rm -rf {data_dir}/shared_prefs/*'")
     os.system(f"su -c 'rm -rf {data_dir}/files/appData/*'")
     os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
     os.system(f"su -c 'rm -rf {webview_dir}/Cache/*'")
     
-    # 2. แทรกซึม XML (สมองซีกซ้าย)
     xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
     tmp_xml = f"{CONFIG_DIR}/tmp_xml_{clone_id}.xml"
     with open(tmp_xml, "w") as f:
@@ -126,10 +123,9 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_xml} {xml_file}'")
     os.system(f"rm -f {tmp_xml}")
     
-    # 3. เตรียมฐานข้อมูล SQLite
     check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
     if not check_db:
-        print(f"{YELLOW}  ↳ [DEBUG] ไม่พบโครงสร้าง Database! สร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
+        print(f"{YELLOW}  [DEBUG] ไม่พบโครงสร้าง Database! สร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
         os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
         time.sleep(7)
         os.system(f"su -c 'am force-stop {package_name}'")
@@ -157,15 +153,13 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
     
-    # 4. แทรกซึม SQLite (สมองซีกขวา)
     sqlite_output = os.popen(f"su -c '{SQLITE_BIN} {cookies_db} < /data/local/tmp/inject_{clone_id}.sql' 2>&1").read().strip()
     
     if "not found" in sqlite_output or "inaccessible" in sqlite_output or "Error" in sqlite_output:
-        print(f"{RED}  ↳ [ERROR] ❌ SQLite ล้มเหลว: {sqlite_output}{RESET}", flush=True)
+        print(f"{RED}  [ERROR] SQLite ล้มเหลว: {sqlite_output}{RESET}", flush=True)
     else:
-        print(f"{CYAN}  ↳ [SUCCESS] ✅ ฉีดคุกกี้ XML + SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
+        print(f"{CYAN}  [SUCCESS] ฉีดคุกกี้ XML + SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
     
-    # 5. ซ่อมแซมกรรมสิทธิ์ไฟล์ทั้งระบบ (ป้องกันเด้ง)
     app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
         os.system(f"su -c 'chown -R {app_uid}:{app_uid} {data_dir}'")
@@ -192,9 +186,9 @@ def heartbeat():
         
         if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
-                print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} ไอดีผิดตัว!{RESET}")
-                print(f"{RED}ต้องการ: {expected_name} | ในเกมคือ: {username}{RESET}")
-                print(f"{YELLOW}กำลังบังคับปิดเกมเพื่อล้างไอดี...{RESET}\n", flush=True)
+                print(f"\n{RED}  [MISMATCH DETECTED] {clone_id} ไอดีผิดตัว!{RESET}")
+                print(f"{RED}  ต้องการ: {expected_name} | ในเกมคือ: {username}{RESET}")
+                print(f"{YELLOW}  กำลังบังคับปิดเกมเพื่อล้างไอดี...{RESET}\n", flush=True)
                 
                 clients_last_seen[clone_id] = 0
                 return "MISMATCH", 200
@@ -213,7 +207,7 @@ def task_complete():
     if clone_id:
         display_name = clients_usernames.get(clone_id, clone_id)
         print(f"\n{CYAN}=========================================={RESET}")
-        print(f"{CYAN}🎉 [{display_name}] ฟาร์มเสร็จสิ้น! กำลังเปลี่ยนไอดี...{RESET}")
+        print(f"{CYAN}  [{display_name}] ฟาร์มเสร็จสิ้น! กำลังเปลี่ยนไอดี...{RESET}")
         print(f"{CYAN}=========================================={RESET}\n", flush=True)
         clients_combo_index[clone_id] = clients_combo_index.get(clone_id, 0) + 1
         clients_last_seen[clone_id] = 0 
@@ -232,9 +226,9 @@ def auto_rejoin_checker():
                 l_seen = clients_last_seen.get(cid, 0)
                 d_name = clients_usernames.get(cid, cid)
                 if l_seen == 0 or (current_time - l_seen) > cfg["TIMEOUT"]:
-                    print(f"{RED}✗ [{d_name}] OFFLINE (กำลังเชื่อมต่อใหม่...){RESET}")
+                    print(f"{RED}  [OFFLINE] {d_name} (กำลังเชื่อมต่อใหม่...){RESET}")
                 else:
-                    print(f"{GREEN}✓ [{d_name}] ONLINE{RESET}")
+                    print(f"{GREEN}  [ONLINE] {d_name}{RESET}")
             print(f"{CYAN}-------------------------{RESET}\n", flush=True)
             last_report_time = current_time
 
@@ -245,9 +239,9 @@ def auto_rejoin_checker():
                 
                 if retry_count < MAX_RETRIES:
                     if retry_count == 0:
-                        print(f"{YELLOW}▶ [{display_name}] กำลังเปิดเกม...{RESET}", flush=True)
+                        print(f"{YELLOW}  [ACTION] {display_name} กำลังเปิดเกม...{RESET}", flush=True)
                     else:
-                        print(f"{YELLOW}▶ [{display_name}] หลุดการเชื่อมต่อ. ลองใหม่ครั้งที่: {retry_count}/{MAX_RETRIES}{RESET}", flush=True)
+                        print(f"{YELLOW}  [RETRY] {display_name} หลุดการเชื่อมต่อ. ลองใหม่ครั้งที่: {retry_count}/{MAX_RETRIES}{RESET}", flush=True)
                     
                     package_name = APPS_PACKAGE_NAMES.get(clone_id)
                     if package_name:
@@ -265,17 +259,17 @@ def auto_rejoin_checker():
                             os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
                         
                         if cfg["LAUNCH_DELAY"] > 0:
-                            print(f"{YELLOW}  ↳ Cooldown: รอ {cfg['LAUNCH_DELAY']} วินาที...{RESET}", flush=True)
+                            print(f"{YELLOW}  [COOLDOWN] รอ {cfg['LAUNCH_DELAY']} วินาที...{RESET}", flush=True)
                             time.sleep(cfg["LAUNCH_DELAY"])
                             
                     clients_last_seen[clone_id] = time.time() + 45 
                     clients_retry_count[clone_id] = retry_count + 1
                 else:
-                    print(f"{RED}[{display_name}] ระงับการทำงาน 5 นาที (พยายามเข้าเกมหลายครั้งเกินไป){RESET}", flush=True)
+                    print(f"{RED}  [SUSPEND] {display_name} ระงับการทำงาน 5 นาที (พยายามเข้าเกมหลายครั้งเกินไป){RESET}", flush=True)
                     clients_last_seen[clone_id] = current_time + 300 
         time.sleep(2)
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-                
+    
