@@ -19,6 +19,9 @@ YELLOW = '\033[93m'
 CYAN = '\033[96m'
 RESET = '\033[0m'
 
+# ชี้เป้าโปรแกรม sqlite3 ใน Termux เพื่อไม่ให้ Root ตาบอด
+SQLITE_BIN = "/data/data/com.termux/files/usr/bin/sqlite3"
+
 def load_apps():
     app_file = os.path.join(CONFIG_DIR, "apps.txt")
     APPS_PACKAGE_NAMES.clear()
@@ -52,7 +55,7 @@ def get_map_id():
             return f.read().strip()
     return ""
 
-# 🌟 ฟังก์ชันกรองเอาเฉพาะคุกกี้ ตัดชื่อกับรหัสผ่านทิ้ง
+# 🌟 ฟังก์ชันกรองเอาเฉพาะคุกกี้ (รองรับทุกโหมด)
 def extract_clean_cookie(raw_text):
     raw_text = raw_text.strip()
     if "_|WARNING" in raw_text:
@@ -99,35 +102,32 @@ def get_cookie_and_name(clone_id):
                 return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่ (ให้แอปสร้างไฟล์เอง แล้วเราเจาะไส้ใน)
+# 🌟 ฟังก์ชันฉีดคุกกี้ (แบบมี Debug ดัก Error)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
     webview_dir = f"{data_dir}/app_webview/Default"
     cookies_db = f"{webview_dir}/Cookies"
     
-    # 1. เช็คว่ามีไฟล์ฐานข้อมูล SQLite หรือยัง?
+    print(f"{YELLOW}  ↳ [DEBUG] ตรวจสอบฐานข้อมูล SQLite...{RESET}", flush=True)
     check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
     
-    # ถ้ายังไม่มี (ไม่เคยล็อกอิน หรือเพิ่งโหลดแอปมาใหม่) ให้เปิดล่อ!
+    # ถ้าหา Database ไม่เจอ ให้เปิดล่อ 1 รอบ
     if not check_db:
-        print(f"{YELLOW}  ↳ No Database Found! Performing Dummy Launch to initialize...{RESET}", flush=True)
+        print(f"{YELLOW}  ↳ [DEBUG] ไม่พบ Database! กำลังเปิดแอปเพื่อสร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
         os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
-        time.sleep(7) # รอแอปสร้างไฟล์
+        time.sleep(7)
         os.system(f"su -c 'am force-stop {package_name}'")
         time.sleep(2)
     
-    # 2. ทำความสะอาดแคชทั่วไป (ไม่ลบฐานข้อมูลทิ้ง)
+    # ล้างแคชขยะ
     os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
-    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'") # ลบ XML กันเกมแอบอ่าน
-    
-    # ลบแคช SQLite เพื่อป้องกัน Database Lock
+    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'")
     os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
     
     safe_cookie = acc_cookie.replace("'", "''")
     now = (int(time.time()) + 11644473600) * 1000000
     expires = now + (365 * 24 * 60 * 60 * 1000000)
     
-    # 3. เจาะไส้ใน: ใช้ SQLite ยัดข้อมูลลงไฟล์ที่แอปสร้างไว้
     sql = (
         f"DELETE FROM cookies WHERE name='.ROBLOSECURITY';"
         f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
@@ -144,18 +144,24 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
     
-    os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
+    # 🔎 รันคำสั่ง SQLite พร้อมดักจับ Error แบบเรียลไทม์
+    print(f"{YELLOW}  ↳ [DEBUG] กำลังรันคำสั่ง SQLite...{RESET}", flush=True)
+    sqlite_output = os.popen(f"su -c '{SQLITE_BIN} {cookies_db} < /data/local/tmp/inject_{clone_id}.sql' 2>&1").read().strip()
     
-    # 4. เก็บกวาด: ดึงชื่อเจ้าของแอปมารับรองไฟล์ เผื่อ SQLite แอบสร้างไฟล์ Temp เป็น Root
-    uid_cmd = f"su -c 'stat -c %u {data_dir}'"
-    app_uid = os.popen(uid_cmd).read().strip()
+    # ตรวจสอบว่าระบบมี Error พ่นออกมาไหม
+    if "not found" in sqlite_output or "inaccessible" in sqlite_output or "Error" in sqlite_output:
+        print(f"{RED}  ↳ [ERROR] ❌ SQLite ล้มเหลว! สาเหตุ: {sqlite_output}{RESET}", flush=True)
+    else:
+        print(f"{CYAN}  ↳ [SUCCESS] ✅ ฉีดคุกกี้ผ่าน SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
+    
+    # ซ่อมแซมกรรมสิทธิ์ไฟล์
+    app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
         os.system(f"su -c 'chown -R {app_uid}:{app_uid} {webview_dir}'")
         os.system(f"su -c 'chmod 660 {cookies_db}'")
     
     os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"rm -f {tmp_sql}")
-    print(f"{CYAN}  ↳ [Smart SQLite Inject]: {acc_name}{RESET}", flush=True)
 
 load_apps()
 for cid in APPS_PACKAGE_NAMES.keys():
@@ -173,12 +179,12 @@ def heartbeat():
     if clone_id:
         expected_name, _ = get_cookie_and_name(clone_id)
         
-        # ระบบตรวจจับไอดีผิดตัว
+        # ถ้าระบบจับได้ว่าไอดีเก่าคาเครื่อง ให้เตะทิ้งทันที
         if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
-                print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} has wrong account!{RESET}")
-                print(f"{RED}Expected: {expected_name} | In-Game: {username}{RESET}")
-                print(f"{YELLOW}Force killing app to clear stuck ID...{RESET}\n", flush=True)
+                print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} ไอดีผิดตัว!{RESET}")
+                print(f"{RED}ต้องการ: {expected_name} | ในเกมคือ: {username}{RESET}")
+                print(f"{YELLOW}กำลังบังคับปิดเกมเพื่อล้างไอดี...{RESET}\n", flush=True)
                 
                 clients_last_seen[clone_id] = 0
                 return "MISMATCH", 200
@@ -197,7 +203,7 @@ def task_complete():
     if clone_id:
         display_name = clients_usernames.get(clone_id, clone_id)
         print(f"\n{CYAN}=========================================={RESET}")
-        print(f"{CYAN}🎉 [{display_name}] FINISHED TASK! Switching account...{RESET}")
+        print(f"{CYAN}🎉 [{display_name}] ฟาร์มเสร็จสิ้น! กำลังเปลี่ยนไอดี...{RESET}")
         print(f"{CYAN}=========================================={RESET}\n", flush=True)
         clients_combo_index[clone_id] = clients_combo_index.get(clone_id, 0) + 1
         clients_last_seen[clone_id] = 0 
@@ -216,7 +222,7 @@ def auto_rejoin_checker():
                 l_seen = clients_last_seen.get(cid, 0)
                 d_name = clients_usernames.get(cid, cid)
                 if l_seen == 0 or (current_time - l_seen) > cfg["TIMEOUT"]:
-                    print(f"{RED}✗ [{d_name}] OFFLINE (Rejoining soon...){RESET}")
+                    print(f"{RED}✗ [{d_name}] OFFLINE (กำลังเชื่อมต่อใหม่...){RESET}")
                 else:
                     print(f"{GREEN}✓ [{d_name}] ONLINE{RESET}")
             print(f"{CYAN}-------------------------{RESET}\n", flush=True)
@@ -229,9 +235,9 @@ def auto_rejoin_checker():
                 
                 if retry_count < MAX_RETRIES:
                     if retry_count == 0:
-                        print(f"{YELLOW}▶ [{display_name}] Starting App...{RESET}", flush=True)
+                        print(f"{YELLOW}▶ [{display_name}] กำลังเปิดเกม...{RESET}", flush=True)
                     else:
-                        print(f"{YELLOW}▶ [{display_name}] Disconnected. Retry: {retry_count}/{MAX_RETRIES}{RESET}", flush=True)
+                        print(f"{YELLOW}▶ [{display_name}] หลุดการเชื่อมต่อ. ลองใหม่ครั้งที่: {retry_count}/{MAX_RETRIES}{RESET}", flush=True)
                     
                     package_name = APPS_PACKAGE_NAMES.get(clone_id)
                     if package_name:
@@ -249,17 +255,17 @@ def auto_rejoin_checker():
                             os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
                         
                         if cfg["LAUNCH_DELAY"] > 0:
-                            print(f"{YELLOW}  ↳ Cooldown: Waiting {cfg['LAUNCH_DELAY']}s...{RESET}", flush=True)
+                            print(f"{YELLOW}  ↳ Cooldown: รอ {cfg['LAUNCH_DELAY']} วินาที...{RESET}", flush=True)
                             time.sleep(cfg["LAUNCH_DELAY"])
                             
                     clients_last_seen[clone_id] = time.time() + 45 
                     clients_retry_count[clone_id] = retry_count + 1
                 else:
-                    print(f"{RED}[{display_name}] Suspended for 5 mins.{RESET}", flush=True)
+                    print(f"{RED}[{display_name}] ระงับการทำงาน 5 นาที (พยายามเข้าเกมหลายครั้งเกินไป){RESET}", flush=True)
                     clients_last_seen[clone_id] = current_time + 300 
         time.sleep(2)
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-            
+    
