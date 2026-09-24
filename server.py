@@ -52,6 +52,17 @@ def get_map_id():
             return f.read().strip()
     return ""
 
+# 🌟 ฟังก์ชันกรองคุกกี้อัจฉริยะ (ดึงมาแค่คุกกี้เพียวๆ ไม่เอา ชื่อ:รหัส)
+def extract_clean_cookie(raw_text):
+    raw_text = raw_text.strip()
+    # ถ้าพบคุกกี้ Roblox ให้ตัดเอาเฉพาะตั้งแต่ _|WARNING เป็นต้นไป
+    if "_|WARNING" in raw_text:
+        return "_|WARNING" + raw_text.split("_|WARNING", 1)[1]
+    # ถ้าไม่มี warning ให้ตัดเอาส่วนสุดท้ายที่อยู่หลังเครื่องหมาย :
+    if ":" in raw_text:
+        return raw_text.split(":")[-1].strip()
+    return raw_text
+
 def get_cookie_and_name(clone_id):
     try:
         c_index = int(clone_id.split('_')[1])
@@ -69,9 +80,11 @@ def get_cookie_and_name(clone_id):
         cookie_file = os.path.join(CONFIG_DIR, "cookie.txt")
         if os.path.exists(cookie_file):
             with open(cookie_file, "r") as f:
-                lines = f.read().splitlines()
+                lines = [l for l in f.read().splitlines() if l.strip()]
                 if len(lines) >= c_index:
-                    return "Normal_Mode", lines[c_index-1]
+                    raw_data = lines[c_index-1]
+                    # กรองเอาเฉพาะคุกกี้
+                    return "Normal_Mode", extract_clean_cookie(raw_data)
         return None, None
     else:
         combo_file = os.path.join(CONFIG_DIR, "AutoSwitch", f"{clone_id}.txt")
@@ -84,61 +97,47 @@ def get_cookie_and_name(clone_id):
                 safe_line = curr_line % len(lines)
                 line_data = lines[safe_line]
                 
-                parts = line_data.split(':', 2)
-                if len(parts) == 3:
-                    return parts[0], parts[2]
-                else:
-                    return "Unknown", line_data
+                parts = line_data.split(':', 1)
+                name = parts[0] if len(parts) > 1 else "Unknown"
+                # กรองเอาเฉพาะคุกกี้
+                return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่ (อัปเดตแบบหมอศัลยกรรม: ไม่ลบโฟลเดอร์มั่ว)
+# 🌟 ฟังก์ชันบอสใหญ่ (ล้าง WebView SQLite แล้วยัด XML แบบตรงเป๊ะตามชื่อแพ็กเกจ)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
-    webview_dir = f"{data_dir}/app_webview/Default"
-    cookies_db = f"{webview_dir}/Cookies"
     
-    # 1. ถอนรากถอนโคน XML เก่าทิ้ง เพื่อบังคับให้เกมอ่านจาก SQLite
-    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'")
+    # 1. ระเบิด WebView SQLite ทิ้ง! (เพื่อให้เกมไม่มีทางเลือก ต้องไปอ่าน XML เท่านั้น)
+    os.system(f"su -c 'rm -rf {data_dir}/app_webview/Default/Cookies*'")
     os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
     
-    # 2. **สำคัญมาก:** ห้าม rm -rf app_webview ให้ลบแค่แคชหน่วยความจำของ SQLite
-    # เพื่อให้คำสั่ง SQL ต่อไปนี้ มีตารางให้ใส่ข้อมูลได้
-    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
+    # 2. แก้บัคชื่อไฟล์ XML (ใช้ชื่อแพ็กเกจเป็นชื่อไฟล์ เช่น com.roblox.clienv_preferences.xml)
+    xml_name = f"{package_name}_preferences.xml"
+    xml_dir = f"{data_dir}/shared_prefs"
+    xml_path = f"{xml_dir}/{xml_name}"
     
-    safe_cookie = acc_cookie.replace("'", "''")
-    now = (int(time.time()) + 11644473600) * 1000000
-    expires = now + (365 * 24 * 60 * 60 * 1000000)
+    # ล้าง XML เก่าทิ้งก่อน
+    os.system(f"su -c 'rm -f {xml_dir}/*.xml'")
     
-    # 3. คำสั่ง SQL ลบเฉพาะคุกกี้ .ROBLOSECURITY ตัวเก่า แล้วยัดตัวใหม่
-    sql = (
-        f"DELETE FROM cookies WHERE name='.ROBLOSECURITY';"
-        f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
-        f"path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, "
-        f"priority, samesite, source_scheme, source_port, is_same_party) VALUES ("
-        f"{now}, '', '.roblox.com', '.ROBLOSECURITY', '{safe_cookie}', '', '/', "
-        f"{expires}, 1, 1, {now}, 1, 1, 1, -1, 1, 443, 0);"
-    )
+    # 3. สร้างและยัด XML ตัวใหม่
+    xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
+    tmp_path = f"{CONFIG_DIR}/tmp_{clone_id}.xml"
     
-    tmp_sql = f"{CONFIG_DIR}/inject_{clone_id}.sql"
-    with open(tmp_sql, "w") as f:
-        f.write(sql)
+    with open(tmp_path, "w") as tf:
+        tf.write(xml_content)
     
-    os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
-    os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
+    os.system(f"su -c 'mkdir -p {xml_dir}'")
+    os.system(f"su -c 'cat {tmp_path} > {xml_path}'")
     
-    # ยัดเข้าฐานข้อมูลตรงๆ
-    os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
-    
-    # 4. ล็อกกรรมสิทธิ์ไฟล์
+    # 4. มอบกรรมสิทธิ์ไฟล์
     uid_cmd = f"su -c 'stat -c %u {data_dir}'"
     app_uid = os.popen(uid_cmd).read().strip()
     if app_uid:
-        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}'")
-        os.system(f"su -c 'chmod 660 {cookies_db}'")
+        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {xml_dir}'")
+        os.system(f"su -c 'chmod -R 777 {xml_dir}'")
     
-    os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
-    os.system(f"rm -f {tmp_sql}")
-    print(f"{CYAN}  ↳ [SQLite Inject Success]: {acc_name}{RESET}", flush=True)
+    os.system(f"rm -f {tmp_path}")
+    print(f"{CYAN}  ↳ [Force XML Inject]: {acc_name}{RESET}", flush=True)
 
 load_apps()
 for cid in APPS_PACKAGE_NAMES.keys():
@@ -156,7 +155,6 @@ def heartbeat():
     if clone_id:
         expected_name, _ = get_cookie_and_name(clone_id)
         
-        # แก้บัคเรดาร์ตาบอด: บังคับเช็คชื่อทุกโหมด ถ้ามีชื่อคาดหวัง และมันไม่ได้เป็นคำว่า Normal_Mode
         if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
                 print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} has wrong account!{RESET}")
@@ -218,16 +216,13 @@ def auto_rejoin_checker():
                     
                     package_name = APPS_PACKAGE_NAMES.get(clone_id)
                     if package_name:
-                        # ฆ่าแอปทิ้ง
                         os.system(f"su -c 'am force-stop {package_name}'")
                         time.sleep(2)
                         
-                        # รันฟังก์ชันยัดคุกกี้
                         acc_name, acc_cookie = get_cookie_and_name(clone_id)
                         if acc_cookie:
                             inject_cookie(package_name, clone_id, acc_cookie, acc_name)
                         
-                        # เปิดเกม
                         map_id = get_map_id()
                         if map_id:
                             os.system(f"su -c 'am start -a android.intent.action.VIEW -d \"roblox://placeId={map_id}\" -p {package_name}'")
@@ -248,4 +243,3 @@ def auto_rejoin_checker():
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-    
