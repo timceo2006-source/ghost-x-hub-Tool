@@ -4,7 +4,6 @@ SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
 
 echo "Installing required packages..."
 pkg update -y > /dev/null 2>&1
-# เพิ่มแพ็กเกจ sqlite เข้ามาแล้ว
 pkg install python openssh psmisc lsof ncurses-utils curl sqlite -y > /dev/null 2>&1
 pip install flask > /dev/null 2>&1
 
@@ -37,11 +36,9 @@ pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
-# ดาวน์โหลดสมองกล (server.py) หากไม่มีไฟล์
 if [ ! -f "server.py" ]; then
     echo -e "${YELLOW}Downloading Core System...${RESET}"
-    # แก้ลิงก์ตรงนี้ให้ชี้ไปที่ raw ไฟล์ server.py ใน Github ของคุณนะครับ
-    # curl -sL "https://raw.githubusercontent.com/YourName/GhostXHub/main/server.py" -o server.py
+    curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/server.py" -o server.py
     echo -e "${GREEN}System Ready!${RESET}"
 fi
 
@@ -142,7 +139,7 @@ while true; do
             PY_PID=$!
             
             echo -e "\n${CYAN}====================================${RESET}"
-            echo -e "${GREEN}  ▶ SYSTEM IS RUNNING (SQLite Mode) !${RESET}"
+            echo -e "${GREEN}  > SYSTEM IS RUNNING (SQLite Mode) !${RESET}"
             echo -e "${YELLOW}  Mode: $( [ "$SWITCH_STATUS" == "ON" ] && echo "Auto-Switch" || echo "Normal" )${RESET}"
             echo -e "${YELLOW}  Press [ENTER] to STOP and return to Menu${RESET}"
             echo -e "${CYAN}====================================${RESET}\n"
