@@ -107,29 +107,17 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     xml_dir = f"{data_dir}/shared_prefs"
     xml_file = f"{xml_dir}/{package_name}_preferences.xml"
     
-    print(f"{YELLOW}  [DEBUG] เริ่มกระบวนการ DUAL-CORE INJECT (Super Deep Wipe)...{RESET}", flush=True)
+    print(f"{YELLOW}  [DEBUG] เริ่มกระบวนการฉีดคุกกี้ (Force Switch Mode)...{RESET}", flush=True)
     
-    # ==========================================
-    # 💥 ขั้นตอนที่ 1: ล้างบางความจำเก่าระดับรากฟัน (Deep Wipe)
-    # ==========================================
-    # ล้างฝั่ง Native
+    # 1. เตะไอดีเก่าออก (ต้องลบ files/appData ด้วย ไม่งั้นเกมจะจำไอดีที่คาอยู่)
     os.system(f"su -c 'rm -rf {data_dir}/shared_prefs/*'")
-    os.system(f"su -c 'rm -rf {data_dir}/files/*'")        
-    os.system(f"su -c 'rm -rf {data_dir}/databases/*'")    
-    os.system(f"su -c 'rm -rf {data_dir}/no_backup/*'")    
-    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
-    os.system(f"su -c 'rm -rf {data_dir}/code_cache/*'")
-    
-    # ล้างฝั่ง Web (ลึกสุด)
-    os.system(f"su -c 'rm -rf {webview_dir}/Cache/*'")
+    os.system(f"su -c 'rm -rf {data_dir}/files/appData/*'") 
     os.system(f"su -c 'rm -rf {webview_dir}/Local\\ Storage/*'")
     os.system(f"su -c 'rm -rf {webview_dir}/Session\\ Storage/*'")
+    os.system(f"su -c 'rm -rf {webview_dir}/Cache/*'")
     os.system(f"su -c 'rm -rf {webview_dir}/IndexedDB/*'")
-    os.system(f"su -c 'rm -rf {webview_dir}/Network\\ Persistent\\ State'")
     
-    # ==========================================
-    # 🧠 ขั้นตอนที่ 2: แทรกซึม XML (สมองซีกซ้าย)
-    # ==========================================
+    # 2. แทรกซึม XML (สมองซีกซ้าย)
     xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
     tmp_xml = f"{CONFIG_DIR}/tmp_xml_{clone_id}.xml"
     with open(tmp_xml, "w") as f:
@@ -139,9 +127,7 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_xml} {xml_file}'")
     os.system(f"rm -f {tmp_xml}")
     
-    # ==========================================
-    # 💉 ขั้นตอนที่ 3: เตรียมฐานข้อมูล SQLite
-    # ==========================================
+    # 3. เตรียมฐานข้อมูล SQLite
     check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
     if not check_db:
         print(f"{YELLOW}  [DEBUG] ไม่พบโครงสร้าง Database! สร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
@@ -156,6 +142,7 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     now = (int(time.time()) + 11644473600) * 1000000
     expires = now + (365 * 24 * 60 * 60 * 1000000)
     
+    # 4. ยัดคุกกี้ผ่าน SQLite (สมองซีกขวา)
     sql = (
         f"DELETE FROM cookies;"
         f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
@@ -172,9 +159,6 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
     
-    # ==========================================
-    # ⚡ ขั้นตอนที่ 4: ฉีดคุกกี้และซ่อมแซมไฟล์
-    # ==========================================
     sqlite_output = os.popen(f"su -c '{SQLITE_BIN} {cookies_db} < /data/local/tmp/inject_{clone_id}.sql' 2>&1").read().strip()
     
     if "not found" in sqlite_output or "inaccessible" in sqlite_output or "Error" in sqlite_output:
@@ -182,6 +166,7 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     else:
         print(f"{CYAN}  [SUCCESS] ฉีดคุกกี้ XML + SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
     
+    # 5. คืนสิทธิ์ไฟล์กันเกมเด้ง
     app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
         os.system(f"su -c 'chown -R {app_uid}:{app_uid} {data_dir}'")
