@@ -36,11 +36,13 @@ pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
-if [ ! -f "server.py" ]; then
-    echo -e "${YELLOW}Downloading Core System...${RESET}"
-    curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/server.py" -o server.py
-    echo -e "${GREEN}System Ready!${RESET}"
-fi
+# ==========================================
+# บังคับโหลด server.py ใหม่ทุกครั้งที่เปิดสคริปต์
+# ==========================================
+echo -e "${YELLOW}Downloading Latest Core System...${RESET}"
+rm -f server.py
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/server.py" -o server.py
+echo -e "${GREEN}System Ready!${RESET}"
 
 echo -e "${CYAN}Establishing Secure Tunnel...${RESET}"
 ssh -o StrictHostKeyChecking=no -R 80:localhost:5000 serveo.net > "$CONFIG_DIR/tunnel.log" 2>&1 &
