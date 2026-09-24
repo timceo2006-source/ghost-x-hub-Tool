@@ -52,6 +52,7 @@ def get_map_id():
             return f.read().strip()
     return ""
 
+# 🌟 ฟังก์ชันกรองเอาเฉพาะคุกกี้ ตัดชื่อกับรหัสผ่านทิ้ง
 def extract_clean_cookie(raw_text):
     raw_text = raw_text.strip()
     if "_|WARNING" in raw_text:
@@ -98,36 +99,35 @@ def get_cookie_and_name(clone_id):
                 return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่ (ฉบับอัจฉริยะตามไอเดียของคุณ!)
+# 🌟 ฟังก์ชันบอสใหญ่ (ให้แอปสร้างไฟล์เอง แล้วเราเจาะไส้ใน)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
-    xml_path = f"{data_dir}/shared_prefs/{package_name}_preferences.xml"
-    cookies_db = f"{data_dir}/app_webview/Default/Cookies"
+    webview_dir = f"{data_dir}/app_webview/Default"
+    cookies_db = f"{webview_dir}/Cookies"
     
-    # 1. ตรวจสอบว่าแอปเคยสร้างไฟล์ของตัวเองหรือยัง?
-    check_file = os.popen(f"su -c 'ls {xml_path} 2>/dev/null'").read().strip()
+    # 1. เช็คว่ามีไฟล์ฐานข้อมูล SQLite หรือยัง?
+    check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
     
-    if not check_file:
-        # ถ้ายังไม่มี ปล่อยให้แอปเปิดขึ้นมาสร้างไฟล์ของตัวเองก่อน 7 วิ! (ไอเดียคุณเลย)
-        print(f"{CYAN}  ↳ Let App Create Native Files (Wait 7s)...{RESET}", flush=True)
+    # ถ้ายังไม่มี (ไม่เคยล็อกอิน หรือเพิ่งโหลดแอปมาใหม่) ให้เปิดล่อ!
+    if not check_db:
+        print(f"{YELLOW}  ↳ No Database Found! Performing Dummy Launch to initialize...{RESET}", flush=True)
         os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
-        time.sleep(7)
+        time.sleep(7) # รอแอปสร้างไฟล์
         os.system(f"su -c 'am force-stop {package_name}'")
         time.sleep(2)
-        
+    
+    # 2. ทำความสะอาดแคชทั่วไป (ไม่ลบฐานข้อมูลทิ้ง)
+    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
+    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'") # ลบ XML กันเกมแอบอ่าน
+    
+    # ลบแคช SQLite เพื่อป้องกัน Database Lock
+    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
+    
     safe_cookie = acc_cookie.replace("'", "''")
     now = (int(time.time()) + 11644473600) * 1000000
     expires = now + (365 * 24 * 60 * 60 * 1000000)
     
-    # 2. อัปเดต XML: ใช้การ "เขียนทับเนื้อหา (>)" ห้ามลบไฟล์ทิ้ง สิทธิ์จะเป็นของแอปเหมือนเดิม!
-    xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
-    tmp_xml = f"{CONFIG_DIR}/tmp_{clone_id}.xml"
-    with open(tmp_xml, "w") as tf:
-        tf.write(xml_content)
-    os.system(f"su -c 'cat {tmp_xml} > {xml_path}'")
-    os.system(f"rm -f {tmp_xml}")
-    
-    # 3. อัปเดต SQLite: ดึง UID ของแอป และใช้ sqlite3 ไปอัปเดตข้อมูลข้างในดื้อๆ เลย
+    # 3. เจาะไส้ใน: ใช้ SQLite ยัดข้อมูลลงไฟล์ที่แอปสร้างไว้
     sql = (
         f"DELETE FROM cookies WHERE name='.ROBLOSECURITY';"
         f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
@@ -136,6 +136,7 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
         f"{now}, '', '.roblox.com', '.ROBLOSECURITY', '{safe_cookie}', '', '/', "
         f"{expires}, 1, 1, {now}, 1, 1, 1, -1, 1, 443, 0);"
     )
+    
     tmp_sql = f"{CONFIG_DIR}/inject_{clone_id}.sql"
     with open(tmp_sql, "w") as f:
         f.write(sql)
@@ -143,23 +144,18 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
     
-    # ลบแค่ไฟล์แคช SQLite ชั่วคราว (ห้ามลบไฟล์ Cookies หลัก)
-    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
-    
-    # อัปเดต SQLite
     os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
     
-    # 4. มั่นใจ 100%: ยืนยันสิทธิ์ไฟล์ให้เป็นของแอพทุกชิ้น (ป้องกันการปนเปื้อนจาก Root)
-    app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
+    # 4. เก็บกวาด: ดึงชื่อเจ้าของแอปมารับรองไฟล์ เผื่อ SQLite แอบสร้างไฟล์ Temp เป็น Root
+    uid_cmd = f"su -c 'stat -c %u {data_dir}'"
+    app_uid = os.popen(uid_cmd).read().strip()
     if app_uid:
-        os.system(f"su -c 'chown {app_uid}:{app_uid} {xml_path}'")
-        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}'")
-        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}-journal' 2>/dev/null")
-        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}-wal' 2>/dev/null")
+        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {webview_dir}'")
+        os.system(f"su -c 'chmod 660 {cookies_db}'")
     
     os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"rm -f {tmp_sql}")
-    print(f"{CYAN}  ↳ [Smart Update Success]: {acc_name}{RESET}", flush=True)
+    print(f"{CYAN}  ↳ [Smart SQLite Inject]: {acc_name}{RESET}", flush=True)
 
 load_apps()
 for cid in APPS_PACKAGE_NAMES.keys():
@@ -177,6 +173,7 @@ def heartbeat():
     if clone_id:
         expected_name, _ = get_cookie_and_name(clone_id)
         
+        # ระบบตรวจจับไอดีผิดตัว
         if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
                 print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} has wrong account!{RESET}")
@@ -265,4 +262,4 @@ def auto_rejoin_checker():
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-    
+            
