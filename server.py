@@ -52,13 +52,10 @@ def get_map_id():
             return f.read().strip()
     return ""
 
-# 🌟 ฟังก์ชันกรองคุกกี้อัจฉริยะ (ดึงมาแค่คุกกี้เพียวๆ ไม่เอา ชื่อ:รหัส)
 def extract_clean_cookie(raw_text):
     raw_text = raw_text.strip()
-    # ถ้าพบคุกกี้ Roblox ให้ตัดเอาเฉพาะตั้งแต่ _|WARNING เป็นต้นไป
     if "_|WARNING" in raw_text:
         return "_|WARNING" + raw_text.split("_|WARNING", 1)[1]
-    # ถ้าไม่มี warning ให้ตัดเอาส่วนสุดท้ายที่อยู่หลังเครื่องหมาย :
     if ":" in raw_text:
         return raw_text.split(":")[-1].strip()
     return raw_text
@@ -83,7 +80,6 @@ def get_cookie_and_name(clone_id):
                 lines = [l for l in f.read().splitlines() if l.strip()]
                 if len(lines) >= c_index:
                     raw_data = lines[c_index-1]
-                    # กรองเอาเฉพาะคุกกี้
                     return "Normal_Mode", extract_clean_cookie(raw_data)
         return None, None
     else:
@@ -99,45 +95,71 @@ def get_cookie_and_name(clone_id):
                 
                 parts = line_data.split(':', 1)
                 name = parts[0] if len(parts) > 1 else "Unknown"
-                # กรองเอาเฉพาะคุกกี้
                 return name, extract_clean_cookie(line_data)
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่ (ล้าง WebView SQLite แล้วยัด XML แบบตรงเป๊ะตามชื่อแพ็กเกจ)
+# 🌟 ฟังก์ชันบอสใหญ่ (ฉบับอัจฉริยะตามไอเดียของคุณ!)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
+    xml_path = f"{data_dir}/shared_prefs/{package_name}_preferences.xml"
+    cookies_db = f"{data_dir}/app_webview/Default/Cookies"
     
-    # 1. ระเบิด WebView SQLite ทิ้ง! (เพื่อให้เกมไม่มีทางเลือก ต้องไปอ่าน XML เท่านั้น)
-    os.system(f"su -c 'rm -rf {data_dir}/app_webview/Default/Cookies*'")
-    os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
+    # 1. ตรวจสอบว่าแอปเคยสร้างไฟล์ของตัวเองหรือยัง?
+    check_file = os.popen(f"su -c 'ls {xml_path} 2>/dev/null'").read().strip()
     
-    # 2. แก้บัคชื่อไฟล์ XML (ใช้ชื่อแพ็กเกจเป็นชื่อไฟล์ เช่น com.roblox.clienv_preferences.xml)
-    xml_name = f"{package_name}_preferences.xml"
-    xml_dir = f"{data_dir}/shared_prefs"
-    xml_path = f"{xml_dir}/{xml_name}"
+    if not check_file:
+        # ถ้ายังไม่มี ปล่อยให้แอปเปิดขึ้นมาสร้างไฟล์ของตัวเองก่อน 7 วิ! (ไอเดียคุณเลย)
+        print(f"{CYAN}  ↳ Let App Create Native Files (Wait 7s)...{RESET}", flush=True)
+        os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
+        time.sleep(7)
+        os.system(f"su -c 'am force-stop {package_name}'")
+        time.sleep(2)
+        
+    safe_cookie = acc_cookie.replace("'", "''")
+    now = (int(time.time()) + 11644473600) * 1000000
+    expires = now + (365 * 24 * 60 * 60 * 1000000)
     
-    # ล้าง XML เก่าทิ้งก่อน
-    os.system(f"su -c 'rm -f {xml_dir}/*.xml'")
-    
-    # 3. สร้างและยัด XML ตัวใหม่
+    # 2. อัปเดต XML: ใช้การ "เขียนทับเนื้อหา (>)" ห้ามลบไฟล์ทิ้ง สิทธิ์จะเป็นของแอปเหมือนเดิม!
     xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
-    tmp_path = f"{CONFIG_DIR}/tmp_{clone_id}.xml"
-    
-    with open(tmp_path, "w") as tf:
+    tmp_xml = f"{CONFIG_DIR}/tmp_{clone_id}.xml"
+    with open(tmp_xml, "w") as tf:
         tf.write(xml_content)
+    os.system(f"su -c 'cat {tmp_xml} > {xml_path}'")
+    os.system(f"rm -f {tmp_xml}")
     
-    os.system(f"su -c 'mkdir -p {xml_dir}'")
-    os.system(f"su -c 'cat {tmp_path} > {xml_path}'")
+    # 3. อัปเดต SQLite: ดึง UID ของแอป และใช้ sqlite3 ไปอัปเดตข้อมูลข้างในดื้อๆ เลย
+    sql = (
+        f"DELETE FROM cookies WHERE name='.ROBLOSECURITY';"
+        f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
+        f"path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, "
+        f"priority, samesite, source_scheme, source_port, is_same_party) VALUES ("
+        f"{now}, '', '.roblox.com', '.ROBLOSECURITY', '{safe_cookie}', '', '/', "
+        f"{expires}, 1, 1, {now}, 1, 1, 1, -1, 1, 443, 0);"
+    )
+    tmp_sql = f"{CONFIG_DIR}/inject_{clone_id}.sql"
+    with open(tmp_sql, "w") as f:
+        f.write(sql)
     
-    # 4. มอบกรรมสิทธิ์ไฟล์
-    uid_cmd = f"su -c 'stat -c %u {data_dir}'"
-    app_uid = os.popen(uid_cmd).read().strip()
+    os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
+    os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
+    
+    # ลบแค่ไฟล์แคช SQLite ชั่วคราว (ห้ามลบไฟล์ Cookies หลัก)
+    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
+    
+    # อัปเดต SQLite
+    os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
+    
+    # 4. มั่นใจ 100%: ยืนยันสิทธิ์ไฟล์ให้เป็นของแอพทุกชิ้น (ป้องกันการปนเปื้อนจาก Root)
+    app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
-        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {xml_dir}'")
-        os.system(f"su -c 'chmod -R 777 {xml_dir}'")
+        os.system(f"su -c 'chown {app_uid}:{app_uid} {xml_path}'")
+        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}'")
+        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}-journal' 2>/dev/null")
+        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}-wal' 2>/dev/null")
     
-    os.system(f"rm -f {tmp_path}")
-    print(f"{CYAN}  ↳ [Force XML Inject]: {acc_name}{RESET}", flush=True)
+    os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
+    os.system(f"rm -f {tmp_sql}")
+    print(f"{CYAN}  ↳ [Smart Update Success]: {acc_name}{RESET}", flush=True)
 
 load_apps()
 for cid in APPS_PACKAGE_NAMES.keys():
@@ -243,3 +265,4 @@ def auto_rejoin_checker():
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
+    
