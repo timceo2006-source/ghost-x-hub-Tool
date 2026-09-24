@@ -91,29 +91,27 @@ def get_cookie_and_name(clone_id):
                     return "Unknown", line_data
         return None, None
 
-# 🌟 ฟังก์ชันบอสใหญ่: เจาะฐานข้อมูล SQLite ของ WebView (ฉบับกวาดล้าง)
+# 🌟 ฟังก์ชันบอสใหญ่ (อัปเดตแบบหมอศัลยกรรม: ไม่ลบโฟลเดอร์มั่ว)
 def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     data_dir = f"/data/data/{package_name}"
     webview_dir = f"{data_dir}/app_webview/Default"
     cookies_db = f"{webview_dir}/Cookies"
     
-    # 1. THE NUKE ☢️: ล้างทุกซอกทุกมุมที่แอปใช้ซ่อนประวัติไอดี 
-    os.system(f"su -c 'rm -rf {data_dir}/shared_prefs/*'")
-    os.system(f"su -c 'rm -rf {data_dir}/app_webview/*'")
-    os.system(f"su -c 'rm -rf {data_dir}/databases/*'")
-    os.system(f"su -c 'rm -rf {data_dir}/no_backup/*'")
+    # 1. ถอนรากถอนโคน XML เก่าทิ้ง เพื่อบังคับให้เกมอ่านจาก SQLite
+    os.system(f"su -c 'rm -f {data_dir}/shared_prefs/*.xml'")
     os.system(f"su -c 'rm -rf {data_dir}/cache/*'")
     
-    # 2. สร้างโครงสร้าง WebView ขึ้นมาใหม่ให้สะอาดเอี่ยม
-    os.system(f"su -c 'mkdir -p {webview_dir}'")
+    # 2. **สำคัญมาก:** ห้าม rm -rf app_webview ให้ลบแค่แคชหน่วยความจำของ SQLite
+    # เพื่อให้คำสั่ง SQL ต่อไปนี้ มีตารางให้ใส่ข้อมูลได้
+    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
     
     safe_cookie = acc_cookie.replace("'", "''")
     now = (int(time.time()) + 11644473600) * 1000000
     expires = now + (365 * 24 * 60 * 60 * 1000000)
     
-    # 3. เตรียมคำสั่ง SQL (ลบของเก่า ยัดของใหม่)
+    # 3. คำสั่ง SQL ลบเฉพาะคุกกี้ .ROBLOSECURITY ตัวเก่า แล้วยัดตัวใหม่
     sql = (
-        f"DELETE FROM cookies WHERE host_key='.roblox.com' AND name='.ROBLOSECURITY';"
+        f"DELETE FROM cookies WHERE name='.ROBLOSECURITY';"
         f"INSERT INTO cookies (creation_utc, top_frame_site_key, host_key, name, value, encrypted_value, "
         f"path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, "
         f"priority, samesite, source_scheme, source_port, is_same_party) VALUES ("
@@ -127,14 +125,15 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     
     os.system(f"su -c 'cp {tmp_sql} /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"su -c 'chmod 644 /data/local/tmp/inject_{clone_id}.sql'")
-    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'") 
+    
+    # ยัดเข้าฐานข้อมูลตรงๆ
     os.system(f"su -c 'sqlite3 {cookies_db} < /data/local/tmp/inject_{clone_id}.sql'")
     
-    # 4. ล็อกกรรมสิทธิ์ไฟล์ ป้องกันแอนดรอยด์บล็อก
+    # 4. ล็อกกรรมสิทธิ์ไฟล์
     uid_cmd = f"su -c 'stat -c %u {data_dir}'"
     app_uid = os.popen(uid_cmd).read().strip()
     if app_uid:
-        os.system(f"su -c 'chown -R {app_uid}:{app_uid} {data_dir}/app_webview'")
+        os.system(f"su -c 'chown {app_uid}:{app_uid} {cookies_db}'")
         os.system(f"su -c 'chmod 660 {cookies_db}'")
     
     os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
@@ -155,17 +154,15 @@ def heartbeat():
     username = data.get("username") 
     
     if clone_id:
-        # ระบบสแกนตรวจสอบความถูกต้องของไอดี
         expected_name, _ = get_cookie_and_name(clone_id)
         
-        if username and expected_name and expected_name not in ["Normal_Mode", "Unknown"]:
-            # ถ้าชื่อในเกม ไม่ตรงกับ ชื่อในไฟล์คอมโบ (เทียบแบบไม่สนพิมพ์เล็ก-ใหญ่)
+        # แก้บัคเรดาร์ตาบอด: บังคับเช็คชื่อทุกโหมด ถ้ามีชื่อคาดหวัง และมันไม่ได้เป็นคำว่า Normal_Mode
+        if username and expected_name and expected_name != "Normal_Mode" and expected_name != "Unknown":
             if username.lower() != expected_name.lower():
                 print(f"\n{RED}⚠️ [MISMATCH DETECTED] {clone_id} has wrong account!{RESET}")
                 print(f"{RED}Expected: {expected_name} | In-Game: {username}{RESET}")
                 print(f"{YELLOW}Force killing app to clear stuck ID...{RESET}\n", flush=True)
                 
-                # บังคับรีเซ็ตเวลาเป็น 0 เพื่อให้ลูป Auto-rejoin จับเตะทิ้งทันที
                 clients_last_seen[clone_id] = 0
                 return "MISMATCH", 200
         
@@ -221,11 +218,11 @@ def auto_rejoin_checker():
                     
                     package_name = APPS_PACKAGE_NAMES.get(clone_id)
                     if package_name:
-                        # ฆ่าแอปทิ้ง (จำเป็นมาก เพื่อให้คายแคช)
+                        # ฆ่าแอปทิ้ง
                         os.system(f"su -c 'am force-stop {package_name}'")
                         time.sleep(2)
                         
-                        # รันฟังก์ชันยัดคุกกี้ (ล้าง XML + ยัด SQLite)
+                        # รันฟังก์ชันยัดคุกกี้
                         acc_name, acc_cookie = get_cookie_and_name(clone_id)
                         if acc_cookie:
                             inject_cookie(package_name, clone_id, acc_cookie, acc_name)
