@@ -15,9 +15,6 @@ RESET="\e[0m"
 mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
-# ==========================================
-# ระบบถามคีย์ก่อนเข้าเมนู
-# ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     stty sane 2>/dev/null
     clear
@@ -39,31 +36,38 @@ fi
 clear
 echo "Loading system... Please wait."
 
-# อัปเดตแพ็กเกจพื้นฐาน
+# ==========================================
+# [UPDATED] ติดตั้งเครื่องมือทั้งหมดแบบรวดเดียวจบ
+# ==========================================
 pkg update -y > /dev/null 2>&1
-pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
+echo -e "${WHITE}[>] Installing core packages... (This may take a moment)${RESET}"
+pkg install rust binutils libffi-dev clang make openssl-dev python python-cryptography openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
 # ==========================================
-# [NEW] ระบบตรวจสอบความสมบูรณ์ 100% (Auto-Heal Check)
+# ระบบเช็คไลบรารีแบบปลอดภัย ไม่ติดลูป
 # ==========================================
 echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
 
-# 1. บังคับเช็คไลบรารี Python (ถ้าขาดให้ลงใหม่จนกว่าจะครบ)
-while ! python -c "import flask, requests, cryptography" 2>/dev/null; do
-    echo -e "${YELLOW}[!] Missing Python modules. Installing...${RESET}"
-    pip install flask requests cryptography > /dev/null 2>&1
-done
+if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
+    echo -e "${YELLOW}[!] Missing Python modules. Installing... (This may take a few minutes)${RESET}"
+    pip install --upgrade pip
+    pip install flask requests cryptography
+    
+    if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
+        echo -e "${RED}[!] Failed to install dependencies. Please check your internet connection.${RESET}"
+        exit 1
+    fi
+fi
 
-# 2. บังคับเช็คไฟล์สคริปต์ (ถ้าไฟล์ไม่มี หรือไฟล์ว่างเปล่า ให้โหลดใหม่)
+# โหลดไฟล์สคริปต์ใหม่
 GITHUB_URL="https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main"
 FILES=("main.py" "config.py" "injector.py" "auth.py" "pwf_license.py")
 
 for file in "${FILES[@]}"; do
-    # เช็คว่าไฟล์มีอยู่จริง และขนาดไฟล์ต้องไม่เท่ากับ 0 (ป้องกันเน็ตหลุดโหลดมาไม่เต็ม)
-    while [ ! -s "$file" ]; do
+    if [ ! -s "$file" ]; then
         echo -e "${YELLOW}[!] Downloading missing file: $file ...${RESET}"
         curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
-    done
+    fi
 done
 
 echo -e "${GREEN}[+] All files and modules verified!${RESET}"
@@ -113,7 +117,7 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
 fi
 
 # ==========================================
-# ระบบดึงข้อมูลวันหมดอายุคีย์ล่วงหน้า
+# ระบบดึงข้อมูลวันหมดอายุคีย์
 # ==========================================
 echo "Fetching License Info..."
 python -c "
