@@ -1,50 +1,50 @@
 #!/bin/bash
 CONFIG_DIR="/storage/emulated/0/GhostXHub"
 SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
+SETTING_FILE="$CONFIG_DIR/Setting.txt"
 
-echo "Installing required packages..."
+clear
+echo "Loading system... Please wait."
+
 pkg update -y > /dev/null 2>&1
 pkg install python openssh psmisc lsof ncurses-utils curl sqlite -y > /dev/null 2>&1
 pip install flask > /dev/null 2>&1
 
-su -c "mkdir -p $CONFIG_DIR" 2>/dev/null
 mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
-if [ ! -f "$CONFIG_DIR/settings.txt" ]; then
-    echo "CHECK_INTERVAL=30" > "$CONFIG_DIR/settings.txt"
-    echo "TIMEOUT=40" >> "$CONFIG_DIR/settings.txt"
-    echo "LAUNCH_DELAY=20" >> "$CONFIG_DIR/settings.txt"
+if [ ! -f "$SETTING_FILE" ]; then
+    echo "MODE=NORMAL" > "$SETTING_FILE"
+    echo "MAP_ID=" >> "$SETTING_FILE"
+    echo "CHECK_INTERVAL=30" >> "$SETTING_FILE"
+    echo "TIMEOUT=40" >> "$SETTING_FILE"
+    echo "LAUNCH_DELAY=15" >> "$SETTING_FILE"
+    echo "LOOP_DELAY=60" >> "$SETTING_FILE"
 fi
 
 GREEN="\e[32m"
 RED="\e[31m"
-YELLOW="\e[33m"
 CYAN="\e[36m"
+WHITE="\e[97m"
 RESET="\e[0m"
 
-stty sane 2>/dev/null
-tput reset 2>/dev/null
-clear
-
-echo -e "${YELLOW}Initializing Ghost X Hub...${RESET}"
 kill -9 $(lsof -t -i:5000) 2>/dev/null
 su -c 'kill -9 $(lsof -t -i:5000)' 2>/dev/null
 fuser -k -9 5000/tcp 2>/dev/null
-killall -9 python 2>/dev/null
 pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
 # ==========================================
-# บังคับโหลด server.py ใหม่ทุกครั้งที่เปิดสคริปต์
+# ลบไฟล์เก่า และดาวน์โหลดโมดูลใหม่แบบเงียบๆ
 # ==========================================
-echo -e "${YELLOW}Downloading Latest Core System...${RESET}"
-rm -f server.py
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/server.py" -o server.py
-echo -e "${GREEN}System Ready!${RESET}"
+rm -f main.py config.py injector.py auth.py server.py
 
-echo -e "${CYAN}Establishing Secure Tunnel...${RESET}"
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/main.py" -o main.py > /dev/null 2>&1
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/config.py" -o config.py > /dev/null 2>&1
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/injector.py" -o injector.py > /dev/null 2>&1
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/auth.py" -o auth.py > /dev/null 2>&1
+
 ssh -o StrictHostKeyChecking=no -R 80:localhost:5000 serveo.net > "$CONFIG_DIR/tunnel.log" 2>&1 &
 
 for i in {1..10}; do
@@ -57,33 +57,12 @@ for i in {1..10}; do
 done
 
 scan_apps() {
-    stty sane 2>/dev/null
-    clear
-    echo -e "${CYAN}====================================${RESET}"
-    echo -e "${YELLOW}  Scanning for Roblox Apps...${RESET}"
-    echo -e "${CYAN}====================================${RESET}"
-    
     > "$CONFIG_DIR/apps.txt"
     su -c 'pm list packages' | grep -i roblox | cut -d':' -f2 | tr -d '\r' | tr -d ' ' > "$CONFIG_DIR/apps.txt"
-    
     app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
-    if [ "$app_count" -gt 0 ]; then
-        echo -e "${GREEN}  Found $app_count App(s):${RESET}"
-        local i=1
-        while IFS= read -r pkg; do
-            if [ -n "$pkg" ]; then
-                echo -e "  [$i] ${GREEN}$pkg${RESET}"
-                i=$((i+1))
-            fi
-        done < "$CONFIG_DIR/apps.txt"
-    else
-        echo -e "${RED}  Warning: No apps found!${RESET}"
+    if [ "$app_count" -eq 0 ]; then
         echo "com.roblox.client" > "$CONFIG_DIR/apps.txt"
-        echo -e "  [1] Default: com.roblox.client"
     fi
-    
-    echo -e "\n${YELLOW}  Returning to menu in 3 seconds...${RESET}"
-    sleep 3
 }
 
 if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
@@ -91,157 +70,102 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
 fi
 
 while true; do
-    stty sane 2>/dev/null
     clear
+    MODE_STATUS=$(grep "^MODE=" "$SETTING_FILE" | cut -d'=' -f2)
+    MAP_ID=$(grep "^MAP_ID=" "$SETTING_FILE" | cut -d'=' -f2)
     
-    SWITCH_STATUS=$(cat "$CONFIG_DIR/switch_status.txt" 2>/dev/null || echo "OFF")
-    if [ "$SWITCH_STATUS" == "ON" ]; then
-        MODE_COLOR="${GREEN}ON${RESET}"
-    else
-        MODE_COLOR="${RED}OFF${RESET}"
-    fi
-
-    echo -e "${GREEN}====================================${RESET}"
-    echo -e "${GREEN}          GHOST X HUB MENU          ${RESET}"
-    echo -e "${GREEN}====================================${RESET}"
-    echo -e "  [Current Mode: Auto-Switch is $MODE_COLOR]"
-    echo -e "${GREEN}====================================${RESET}"
-    echo -e "  [1] Start System"
-    echo -e "  [2] Refresh/Scan Roblox Apps"
-    echo -e "  [3] Setup Cookies & Map Config"
-    echo -e "  [4] Tool Settings (Timeouts/Delays)"
-    echo -e "  [6] Kill All Roblox Apps"
-    echo -e "  [7] Toggle Auto-Switch Mode"
-    echo -e "  [0] Exit"
-    echo -e "${GREEN}====================================${RESET}"
-    read -p "  Select Option: " opt
+    echo -e "${CYAN}========================================${RESET}"
+    echo -e "${WHITE}           GHOST X HUB PANEL            ${RESET}"
+    echo -e "${CYAN}========================================${RESET}"
+    echo -e " [System Mode] : ${WHITE}${MODE_STATUS}${RESET}"
+    echo -e " [Target Map]  : ${WHITE}${MAP_ID:-None}${RESET}"
+    echo -e "${CYAN}========================================${RESET}"
+    echo -e " [1] Start System"
+    echo -e " [2] Rescan Apps"
+    echo -e " [3] Settings Configuration"
+    echo -e " [4] Toggle Mode (Normal / Auto-Switch)"
+    echo -e " [5] Kill All Apps"
+    echo -e " [0] Exit"
+    echo -e "${CYAN}========================================${RESET}"
+    read -p " Select Option: " opt
 
     case $opt in
         1)
             app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
-            if [ "$SWITCH_STATUS" == "OFF" ]; then
-                cookie_count=$(grep -c . "$CONFIG_DIR/cookie.txt" 2>/dev/null || echo 0)
-                if [ "$cookie_count" -lt "$app_count" ] || [ "$cookie_count" -eq 0 ]; then
-                    echo -e "\n${RED}  [Error] Normal mode: Missing cookies!${RESET}"
-                    sleep 3
-                    continue
-                fi
-            else
+            if [ "$MODE_STATUS" == "AUTO_SWITCH" ]; then
                 if [ ! -f "$SWITCH_DIR/clone_1.txt" ]; then
-                    echo -e "\n${RED}  [Error] Switch mode: No combo files found!${RESET}"
-                    sleep 3
+                    echo -e "\n${RED}[!] Missing AutoSwitch files.${RESET}"
+                    sleep 2
                     continue
                 fi
             fi
             
-            stty sane 2>/dev/null
             clear
-            
-            python -u server.py &
+            echo -e "${WHITE}[>] Initializing Engine...${RESET}"
+            python -u main.py &
             PY_PID=$!
             
-            echo -e "\n${CYAN}====================================${RESET}"
-            echo -e "${GREEN}  > SYSTEM IS RUNNING (SQLite Mode) !${RESET}"
-            echo -e "${YELLOW}  Mode: $( [ "$SWITCH_STATUS" == "ON" ] && echo "Auto-Switch" || echo "Normal" )${RESET}"
-            echo -e "${YELLOW}  Press [ENTER] to STOP and return to Menu${RESET}"
-            echo -e "${CYAN}====================================${RESET}\n"
+            echo -e "${CYAN}========================================${RESET}"
+            echo -e "${GREEN}[+] SYSTEM IS RUNNING [${MODE_STATUS}]${RESET}"
+            echo -e "${WHITE}[>] Press [ENTER] to stop the process.${RESET}"
+            echo -e "${CYAN}========================================${RESET}\n"
             
             read -r
             
-            echo -e "${RED}Stopping System...${RESET}"
+            echo -e "${RED}[!] Stopping System...${RESET}"
             kill -9 $PY_PID 2>/dev/null
-            pkill -9 -f server.py 2>/dev/null
+            pkill -9 -f python 2>/dev/null
             sleep 1
             ;;
         2)
+            echo -e "\n${WHITE}[>] Scanning for Roblox packages...${RESET}"
             scan_apps
+            echo -e "${GREEN}[+] Scan complete.${RESET}"
+            sleep 1
             ;;
         3)
-            stty sane 2>/dev/null
             clear
-            app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
-            echo -e "${CYAN}====================================${RESET}"
-            echo -e "${YELLOW}  Setup Normal Cookies for $app_count Clones${RESET}"
-            echo -e "${CYAN}====================================${RESET}"
+            echo -e "${CYAN}========================================${RESET}"
+            echo -e "${WHITE}             CONFIGURATION              ${RESET}"
+            echo -e "${CYAN}========================================${RESET}"
+            read -p " Map ID (Blank to skip): " in_map
+            read -p " Launch Delay (Secs) [Default 15]: " in_ld
+            read -p " Loop Delay (Secs) [Default 60]: " in_loop
+            read -p " Timeout (Secs) [Default 40]: " in_time
             
-            > "$CONFIG_DIR/cookie.txt" 
+            in_ld=${in_ld:-15}
+            in_loop=${in_loop:-60}
+            in_time=${in_time:-40}
             
-            for i in $(seq 1 $app_count); do
-                pkg=$(sed -n "${i}p" "$CONFIG_DIR/apps.txt")
-                echo -e "\n${GREEN}Clone $i (${pkg})${RESET}"
-                read -p "  Paste Cookie: " cookie_data </dev/tty
-                echo "$cookie_data" >> "$CONFIG_DIR/cookie.txt"
-            done
+            sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
+            sed -i "s/^LAUNCH_DELAY=.*/LAUNCH_DELAY=$in_ld/" "$SETTING_FILE"
+            sed -i "s/^LOOP_DELAY=.*/LOOP_DELAY=$in_loop/" "$SETTING_FILE"
+            sed -i "s/^TIMEOUT=.*/TIMEOUT=$in_time/" "$SETTING_FILE"
             
-            echo -e "\n${CYAN}====================================${RESET}"
-            read -p "  Enter Map ID (Leave blank to skip): " map_data </dev/tty
-            if [ -n "$map_data" ]; then
-                echo "$map_data" > "$CONFIG_DIR/map.txt"
-            else
-                > "$CONFIG_DIR/map.txt"
-            fi
-            
-            echo -e "\n${GREEN}  Config saved successfully!${RESET}"
-            sleep 2
+            echo -e "\n${GREEN}[+] Settings Saved.${RESET}"
+            sleep 1
             ;;
         4)
-            stty sane 2>/dev/null
-            clear
-            echo -e "${CYAN}====================================${RESET}"
-            echo -e "${YELLOW}  Global Settings Configuration${RESET}"
-            echo -e "${CYAN}====================================${RESET}"
-            
-            read -p "  Status Check Interval (secs) [Default 30]: " val1 </dev/tty
-            read -p "  Timeout Threshold (secs) [Default 40]: " val2 </dev/tty
-            read -p "  Launch Cooldown (secs) [Default 20]: " val3 </dev/tty
-            
-            val1=${val1:-30}
-            val2=${val2:-40}
-            val3=${val3:-20}
-            
-            echo "CHECK_INTERVAL=$val1" > "$CONFIG_DIR/settings.txt"
-            echo "TIMEOUT=$val2" >> "$CONFIG_DIR/settings.txt"
-            echo "LAUNCH_DELAY=$val3" >> "$CONFIG_DIR/settings.txt"
-            
-            echo -e "\n${GREEN}  Settings saved successfully!${RESET}"
-            sleep 2
-            ;;
-        6)
-            echo -e "\n${RED}  Killing all Roblox apps...${RESET}"
-            su -c 'pm list packages | grep roblox | cut -d":" -f2 | xargs -I {} am force-stop {}'
-            echo -e "${GREEN}  All Roblox processes cleared!${RESET}"
-            sleep 2
-            ;;
-        7)
-            stty sane 2>/dev/null
-            clear
-            if [ "$SWITCH_STATUS" == "OFF" ]; then
-                echo "ON" > "$CONFIG_DIR/switch_status.txt"
+            if [ "$MODE_STATUS" == "NORMAL" ]; then
+                sed -i "s/^MODE=.*/MODE=AUTO_SWITCH/" "$SETTING_FILE"
                 app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
-                for i in $(seq 1 $app_count); do
-                    touch "$SWITCH_DIR/clone_${i}.txt"
-                done
-                echo -e "${CYAN}====================================${RESET}"
-                echo -e "${GREEN}  Auto-Switch Mode: ENABLED!${RESET}"
-                echo -e "${YELLOW}  Files created in GhostXHub/AutoSwitch/${RESET}"
-                echo -e "\n${YELLOW}  Format => Username:Password:Cookie${RESET}"
-                echo -e "${CYAN}====================================${RESET}"
+                for i in $(seq 1 $app_count); do touch "$SWITCH_DIR/clone_${i}.txt"; done
+                echo -e "\n${GREEN}[+] Mode changed to AUTO_SWITCH${RESET}"
             else
-                echo "OFF" > "$CONFIG_DIR/switch_status.txt"
-                echo -e "${CYAN}====================================${RESET}"
-                echo -e "${RED}  Auto-Switch Mode: DISABLED!${RESET}"
-                echo -e "${CYAN}====================================${RESET}"
+                sed -i "s/^MODE=.*/MODE=NORMAL/" "$SETTING_FILE"
+                echo -e "\n${GREEN}[+] Mode changed to NORMAL${RESET}"
             fi
-            read -p "  Press [ENTER] to return..." </dev/tty
+            sleep 1
+            ;;
+        5)
+            echo -e "\n${WHITE}[>] Terminating processes...${RESET}"
+            su -c 'pm list packages | grep roblox | cut -d":" -f2 | xargs -I {} am force-stop {}'
+            echo -e "${GREEN}[+] All apps terminated.${RESET}"
+            sleep 1
             ;;
         0)
-            stty sane 2>/dev/null
             clear
             exit 0
-            ;;
-        *)
-            echo -e "\n${RED}  Invalid Option!${RESET}"
-            sleep 1
             ;;
     esac
 done
