@@ -39,13 +39,39 @@ fi
 clear
 echo "Loading system... Please wait."
 
+# อัปเดตแพ็กเกจพื้นฐาน
 pkg update -y > /dev/null 2>&1
-# [FIXED] เพิ่ม python-cryptography และ python-requests เข้าไปติดตั้งผ่าน pkg ตรงๆ เพื่อความเสถียร
 pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
-# ติดตั้งเฉพาะ flask ผ่าน pip พอ
-pip install flask > /dev/null 2>&1
+# ==========================================
+# [NEW] ระบบตรวจสอบความสมบูรณ์ 100% (Auto-Heal Check)
+# ==========================================
+echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
 
+# 1. บังคับเช็คไลบรารี Python (ถ้าขาดให้ลงใหม่จนกว่าจะครบ)
+while ! python -c "import flask, requests, cryptography" 2>/dev/null; do
+    echo -e "${YELLOW}[!] Missing Python modules. Installing...${RESET}"
+    pip install flask requests cryptography > /dev/null 2>&1
+done
+
+# 2. บังคับเช็คไฟล์สคริปต์ (ถ้าไฟล์ไม่มี หรือไฟล์ว่างเปล่า ให้โหลดใหม่)
+GITHUB_URL="https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main"
+FILES=("main.py" "config.py" "injector.py" "auth.py" "pwf_license.py")
+
+for file in "${FILES[@]}"; do
+    # เช็คว่าไฟล์มีอยู่จริง และขนาดไฟล์ต้องไม่เท่ากับ 0 (ป้องกันเน็ตหลุดโหลดมาไม่เต็ม)
+    while [ ! -s "$file" ]; do
+        echo -e "${YELLOW}[!] Downloading missing file: $file ...${RESET}"
+        curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
+    done
+done
+
+echo -e "${GREEN}[+] All files and modules verified!${RESET}"
+sleep 1
+
+# ==========================================
+# เคลียร์พอร์ตและตั้งค่าเริ่มต้น
+# ==========================================
 if [ ! -f "$SETTING_FILE" ]; then
     echo "MODE=NORMAL" > "$SETTING_FILE"
     echo "MAP_ID=" >> "$SETTING_FILE"
@@ -61,16 +87,6 @@ fuser -k -9 5000/tcp 2>/dev/null
 pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
-
-# ==========================================
-# ดาวน์โหลดสคริปต์ทั้งหมดจาก GitHub
-# ==========================================
-rm -f main.py config.py injector.py auth.py pwf_license.py
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/main.py" -o main.py > /dev/null 2>&1
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/config.py" -o config.py > /dev/null 2>&1
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/injector.py" -o injector.py > /dev/null 2>&1
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/auth.py" -o auth.py > /dev/null 2>&1
-curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/pwf_license.py" -o pwf_license.py > /dev/null 2>&1
 
 ssh -o StrictHostKeyChecking=no -R 80:localhost:5000 serveo.net > "$CONFIG_DIR/tunnel.log" 2>&1 &
 
