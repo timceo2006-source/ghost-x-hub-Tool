@@ -3,6 +3,37 @@ CONFIG_DIR="/storage/emulated/0/GhostXHub"
 SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
 SETTING_FILE="$CONFIG_DIR/Setting.txt"
 COOKIE_FILE="$CONFIG_DIR/cookie.txt"
+LICENSE_FILE="$CONFIG_DIR/license.key"
+
+GREEN="\e[32m"
+RED="\e[31m"
+CYAN="\e[36m"
+WHITE="\e[97m"
+YELLOW="\e[93m"
+RESET="\e[0m"
+
+mkdir -p "$CONFIG_DIR" 2>/dev/null
+mkdir -p "$SWITCH_DIR" 2>/dev/null
+
+# ==========================================
+# [NEW] ระบบถามคีย์ก่อนเข้าเมนู
+# ==========================================
+if [ ! -f "$LICENSE_FILE" ]; then
+    clear
+    echo -e "${CYAN}========================================${RESET}"
+    echo -e "${WHITE}           GHOST X HUB - AUTH           ${RESET}"
+    echo -e "${CYAN}========================================${RESET}"
+    read -p " [?] Enter License Key: " INPUT_KEY
+    
+    if [ -z "$INPUT_KEY" ]; then
+        echo -e "\n${RED} [!] Key cannot be empty! Exiting...${RESET}"
+        exit 1
+    fi
+    
+    echo "$INPUT_KEY" > "$LICENSE_FILE"
+    echo -e "${GREEN} [+] Key saved. Loading system...${RESET}"
+    sleep 1
+fi
 
 clear
 echo "Loading system... Please wait."
@@ -10,9 +41,6 @@ echo "Loading system... Please wait."
 pkg update -y > /dev/null 2>&1
 pkg install python openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 pip install flask > /dev/null 2>&1
-
-mkdir -p "$CONFIG_DIR" 2>/dev/null
-mkdir -p "$SWITCH_DIR" 2>/dev/null
 
 if [ ! -f "$SETTING_FILE" ]; then
     echo "MODE=NORMAL" > "$SETTING_FILE"
@@ -22,12 +50,6 @@ if [ ! -f "$SETTING_FILE" ]; then
     echo "LAUNCH_DELAY=15" >> "$SETTING_FILE"
     echo "LOOP_DELAY=60" >> "$SETTING_FILE"
 fi
-
-GREEN="\e[32m"
-RED="\e[31m"
-CYAN="\e[36m"
-WHITE="\e[97m"
-RESET="\e[0m"
 
 kill -9 $(lsof -t -i:5000) 2>/dev/null
 su -c 'kill -9 $(lsof -t -i:5000)' 2>/dev/null
@@ -76,6 +98,7 @@ while true; do
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [System Mode] : ${WHITE}${MODE_STATUS}${RESET}"
     echo -e " [Target Map]  : ${WHITE}${MAP_ID:-None}${RESET}"
+    echo -e " [License Key] : ${GREEN}ACTIVE${RESET}"
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [1] Start System"
     echo -e " [2] Rescan Roblox Apps"
@@ -178,9 +201,7 @@ while true; do
                     if [ -n "$pkg" ]; then
                         clean_pkg=$(echo "$pkg" | tr -d '\r' | tr -d ' ')
                         echo -e "  |- Force stopping: $clean_pkg"
-                        # ปิดแบบปกติ
                         su -c "am force-stop $clean_pkg" > /dev/null 2>&1
-                        # ท่าไม้ตาย ปิดโปรเซสระดับลึก
                         su -c "killall -9 $clean_pkg" > /dev/null 2>&1 
                     fi
                 done < "$CONFIG_DIR/apps.txt"
