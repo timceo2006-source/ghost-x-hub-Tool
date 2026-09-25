@@ -1,4 +1,5 @@
 from flask import Flask, request
+from flask import cli
 import time
 import threading
 import os
@@ -8,9 +9,15 @@ from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
 
+# ปิดข้อความแจ้งเตือนตอนเริ่มเซิร์ฟเวอร์ (ซ่อน Serving Flask และ Debug mode)
+os.environ['WERKZEUG_RUN_MAIN'] = 'true'
+cli.show_server_banner = lambda *x: None
+
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+log.disabled = True
+app.logger.disabled = True
 
 clients_last_seen = {}
 clients_retry_count = {}
@@ -92,16 +99,13 @@ def auto_rejoin_checker():
         current_time = time.time()
         cfg = get_settings()
         
-        # 1. อัปเดตและแสดงแผงหน้าปัดด้านบน
         print_ui(cfg, current_time)
         
-        # 2. ขั้นตอนการสแกน (โชว์ให้ผู้ใช้เห็นว่าระบบขยับตลอดเวลา)
         sys.stdout.write(f"{WHITE} [>] Initiating system scan...{RESET}\n")
         time.sleep(0.5)
         
         offline_clones = []
         for clone_id in APPS_PACKAGE_NAMES.keys():
-            # สร้างเอฟเฟกต์แกล้งโหลด (ให้ดูเหมือนกำลังปิงเช็คข้อมูล)
             sys.stdout.write(f"\r{WHITE} [>] Verifying {clone_id}...{' ' * 10}\r")
             sys.stdout.flush()
             time.sleep(0.4) 
@@ -117,7 +121,6 @@ def auto_rejoin_checker():
         
         print(f"{CYAN}----------------------------------------{RESET}")
         
-        # 3. จัดการตัวที่ออฟไลน์
         action_taken = False
         for clone_id in offline_clones:
             retry_count = clients_retry_count.get(clone_id, 0)
@@ -146,7 +149,6 @@ def auto_rejoin_checker():
                 clients_retry_count[clone_id] = retry_count + 1
                 action_taken = True
                 
-                # นับถอยหลังดีเลย์ของจอที่เพิ่งเปิด
                 if cfg["LAUNCH_DELAY"] > 0:
                     countdown(cfg["LAUNCH_DELAY"], f"Boot Delay ({clone_id})")
             else:
@@ -156,7 +158,6 @@ def auto_rejoin_checker():
         if action_taken:
             print(f"{CYAN}----------------------------------------{RESET}")
 
-        # 4. รอเวลาเพื่อวนลูปเช็คใหม่ (แสดงนับถอยหลังบรรทัดเดียว)
         countdown(cfg["LOOP_DELAY"], "Next system scan in")
 
 if __name__ == '__main__':
