@@ -2,12 +2,14 @@
 CONFIG_DIR="/storage/emulated/0/GhostXHub"
 SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
 SETTING_FILE="$CONFIG_DIR/Setting.txt"
+COOKIE_FILE="$CONFIG_DIR/cookie.txt"
 
 clear
 echo "Loading system... Please wait."
 
+# เพิ่ม nano เข้าไปในรายการติดตั้งเพื่อให้แก้ไขไฟล์ใน Termux ได้
 pkg update -y > /dev/null 2>&1
-pkg install python openssh psmisc lsof ncurses-utils curl sqlite -y > /dev/null 2>&1
+pkg install python openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 pip install flask > /dev/null 2>&1
 
 mkdir -p "$CONFIG_DIR" 2>/dev/null
@@ -36,7 +38,7 @@ killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
 # ==========================================
-# ลบไฟล์เก่า และดาวน์โหลดโมดูลใหม่แบบเงียบๆ
+# ดาวน์โหลดโมดูลแบบเงียบๆ
 # ==========================================
 rm -f main.py config.py injector.py auth.py server.py
 
@@ -81,12 +83,12 @@ while true; do
     echo -e " [Target Map]  : ${WHITE}${MAP_ID:-None}${RESET}"
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [1] Start System"
-    echo -e " [2] Rescan Apps"
-    echo -e " [3] Set Target Map (Place ID)"
-    echo -e " [4] System Delays & Timeouts"
+    echo -e " [2] Rescan Roblox Apps"
+    echo -e " [3] Setup Normal Cookies (Manual Input)"
+    echo -e " [4] Edit Cookie File (Advanced)"
     echo -e " [5] Toggle Mode (Normal / Auto-Switch)"
-    echo -e " [6] Kill All Apps"
-    echo -e " [0] Exit"
+    echo -e " [6] Kill All Roblox Apps"
+    echo -e " [7] Exit"
     echo -e "${CYAN}========================================${RESET}"
     read -p " Select Option: " opt
 
@@ -126,46 +128,32 @@ while true; do
             ;;
         3)
             clear
+            app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
             echo -e "${CYAN}========================================${RESET}"
-            echo -e "${WHITE}           MAP CONFIGURATION            ${RESET}"
+            echo -e "${WHITE}          NORMAL COOKIE SETUP           ${RESET}"
             echo -e "${CYAN}========================================${RESET}"
-            echo -e " Current Map ID: ${WHITE}${MAP_ID:-None}${RESET}"
-            echo -e "${CYAN}----------------------------------------${RESET}"
-            read -p " Enter New Map ID (Leave blank to clear): " in_map
             
-            sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
+            > "$COOKIE_FILE" 
             
-            echo -e "\n${GREEN}[+] Map ID updated successfully.${RESET}"
-            sleep 1
+            for i in $(seq 1 $app_count); do
+                pkg=$(sed -n "${i}p" "$CONFIG_DIR/apps.txt")
+                echo -e "\n${WHITE}[Clone $i : $pkg]${RESET}"
+                read -p " Paste Cookie: " cookie_data </dev/tty
+                echo "$cookie_data" >> "$COOKIE_FILE"
+            done
+            
+            echo -e "\n${GREEN}[+] Cookies saved successfully!${RESET}"
+            sleep 2
             ;;
         4)
+            if [ ! -f "$COOKIE_FILE" ]; then
+                touch "$COOKIE_FILE"
+            fi
+            # เปิดโปรแกรม nano เพื่อให้ผู้ใช้แก้ไขไฟล์คุกกี้ได้โดยตรง
+            nano "$COOKIE_FILE"
+            
             clear
-            echo -e "${CYAN}========================================${RESET}"
-            echo -e "${WHITE}         DELAY & TIMEOUT SETUP          ${RESET}"
-            echo -e "${CYAN}========================================${RESET}"
-            
-            # ดึงค่าปัจจุบันมาแสดง
-            CUR_LD=$(grep "^LAUNCH_DELAY=" "$SETTING_FILE" | cut -d'=' -f2)
-            CUR_LOOP=$(grep "^LOOP_DELAY=" "$SETTING_FILE" | cut -d'=' -f2)
-            CUR_TIME=$(grep "^TIMEOUT=" "$SETTING_FILE" | cut -d'=' -f2)
-            
-            echo -e " ${WHITE}* Press [ENTER] to keep current value${RESET}"
-            echo -e "${CYAN}----------------------------------------${RESET}"
-            
-            read -p " Launch Delay (Secs) [Current: $CUR_LD]: " in_ld
-            read -p " Loop Delay (Secs) [Current: $CUR_LOOP]: " in_loop
-            read -p " Timeout (Secs) [Current: $CUR_TIME]: " in_time
-            
-            # ถ้าผู้ใช้กด Enter ว่างๆ ให้ใช้ค่าเดิม
-            in_ld=${in_ld:-$CUR_LD}
-            in_loop=${in_loop:-$CUR_LOOP}
-            in_time=${in_time:-$CUR_TIME}
-            
-            sed -i "s/^LAUNCH_DELAY=.*/LAUNCH_DELAY=$in_ld/" "$SETTING_FILE"
-            sed -i "s/^LOOP_DELAY=.*/LOOP_DELAY=$in_loop/" "$SETTING_FILE"
-            sed -i "s/^TIMEOUT=.*/TIMEOUT=$in_time/" "$SETTING_FILE"
-            
-            echo -e "\n${GREEN}[+] System delays updated successfully.${RESET}"
+            echo -e "\n${GREEN}[+] Returned to menu.${RESET}"
             sleep 1
             ;;
         5)
@@ -186,7 +174,7 @@ while true; do
             echo -e "${GREEN}[+] All apps terminated.${RESET}"
             sleep 1
             ;;
-        0)
+        7)
             clear
             exit 0
             ;;
