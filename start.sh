@@ -15,20 +15,23 @@ RESET="\e[0m"
 mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
+# ==========================================
+# ระบบถามคีย์ (ใส่ </dev/tty เพื่อกันบัคข้ามตอนรันผ่าน curl | bash)
+# ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     stty sane 2>/dev/null
     clear
     echo -e "${CYAN}========================================${RESET}"
     echo -e "${WHITE}           GHOST X HUB - AUTH           ${RESET}"
     echo -e "${CYAN}========================================${RESET}"
-    read -p " [?] Enter License Key: " INPUT_KEY
+    read -p " [?] Enter License Key: " INPUT_KEY </dev/tty
     
     if [ -z "$INPUT_KEY" ]; then
         echo -e "\n${RED} [!] Key cannot be empty! Exiting...${RESET}"
         exit 1
     fi
     
-    echo "$INPUT_KEY" > "$LICENSE_FILE"
+    echo "$INPUT_KEY"> "$LICENSE_FILE"
     echo -e "${GREEN} [+] Key saved. Loading system...${RESET}"
     sleep 1
 fi
@@ -37,15 +40,12 @@ clear
 echo "Loading system... Please wait."
 
 # ==========================================
-# [ตัวจบปัญหา] ติดตั้งไลบรารีแบบสำเร็จรูปผ่าน pkg ของ Termux
+# ติดตั้งไลบรารีแบบสำเร็จรูปผ่าน pkg ของ Termux
 # ==========================================
 echo -e "${WHITE}[>] Installing core packages (No Compile Required)...${RESET}"
 pkg update -y > /dev/null 2>&1
 
-# ติดตั้ง python, cryptography และ requests แบบสำเร็จรูป (ไม่ใช้ pip ป้องกันการค้าง)
 pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
-
-# ติดตั้งเฉพาะ flask ผ่าน pip เพราะไฟล์เล็กและไม่มีปัญหา
 pip install flask > /dev/null 2>&1
 
 echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
@@ -163,7 +163,7 @@ while true; do
     echo -e " [7] Kill All Roblox Apps"
     echo -e " [8] Exit"
     echo -e "${CYAN}========================================${RESET}"
-    read -p " Select Option: " opt
+    read -p " Select Option: " opt </dev/tty
 
     case $opt in
         1)
@@ -186,7 +186,7 @@ while true; do
             echo -e "${WHITE}[>] Press [ENTER] to stop the process.${RESET}"
             echo -e "${CYAN}========================================${RESET}\n"
             
-            read -r
+            read -r </dev/tty
             
             echo -e "${RED}[!] Stopping System...${RESET}"
             kill -9 $PY_PID 2>/dev/null
@@ -206,7 +206,7 @@ while true; do
             echo -e "${CYAN}========================================${RESET}"
             echo -e " Current Map ID: ${WHITE}${MAP_ID:-None}${RESET}"
             echo -e "${CYAN}----------------------------------------${RESET}"
-            read -p " Enter New Map ID (Leave blank to clear): " in_map
+            read -p " Enter New Map ID (Leave blank to clear): " in_map </dev/tty
             sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
             echo -e "\n${GREEN}[+] Map ID updated successfully.${RESET}"
             sleep 1
@@ -216,13 +216,12 @@ while true; do
             app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
             echo -e "${CYAN}========================================${RESET}"
             echo -e "${WHITE}           AUTO COOKIE NORMAL           ${RESET}"
-            echo -e "${CYAN}========================================${RESET}"
-            > "$COOKIE_FILE" 
+            echo -e "${CYAN}========================================${RESET}"> "$COOKIE_FILE" 
             for i in $(seq 1 $app_count); do
                 pkg=$(sed -n "${i}p" "$CONFIG_DIR/apps.txt")
                 echo -e "\n${WHITE}[Clone $i : $pkg]${RESET}"
                 read -p " Paste Cookie: " cookie_data </dev/tty
-                echo "$cookie_data" >> "$COOKIE_FILE"
+                echo "$cookie_data">> "$COOKIE_FILE"
             done
             echo -e "\n${GREEN}[+] Cookies saved successfully!${RESET}"
             sleep 2
