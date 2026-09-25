@@ -1,5 +1,4 @@
 #!/bin/bash
-# เปลี่ยนชื่อโฟลเดอร์หลักตามที่คุณต้องการ
 CONFIG_DIR="/storage/emulated/0/Ghost X Tool Manager"
 SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
 SETTING_FILE="$CONFIG_DIR/Setting.txt"
@@ -16,9 +15,6 @@ RESET="\e[0m"
 mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
-# ==========================================
-# ระบบถามคีย์
-# ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     stty sane 2>/dev/null
     clear
@@ -42,19 +38,12 @@ echo -e "${CYAN}========================================${RESET}"
 echo -e "${WHITE}      INITIALIZING GHOST X SYSTEM       ${RESET}"
 echo -e "${CYAN}========================================${RESET}"
 
-# ==========================================
-# ติดตั้งแบบซ่อน Log (ดูสะอาดและเป็นมืออาชีพ)
-# ==========================================
 echo -e "${YELLOW}[>] Preparing system files (Please wait 1-2 mins)...${RESET}"
 pkg update -y > /dev/null 2>&1
 pkg install python python-cryptography openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
-
 pip install --upgrade pip > /dev/null 2>&1
 pip install requests flask > /dev/null 2>&1
 
-# ==========================================
-# ระบบซ่อมตัวเองเงียบๆ หลังบ้าน
-# ==========================================
 if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
     echo -e "${YELLOW}[>] Optimizing system dependencies...${RESET}"
     pkg install rust binutils libffi-dev clang make openssl-dev -y > /dev/null 2>&1
@@ -62,11 +51,11 @@ if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
 fi
 
 # ==========================================
-# โหลดไฟล์สคริปต์แบบเงียบ
+# [แก้ไขแล้ว] เปลี่ยนเป็นดาวน์โหลดไฟล์ .pyc แทน .py
 # ==========================================
 echo -e "${WHITE}[>] Syncing latest update...${RESET}"
 GITHUB_URL="https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main"
-FILES=("main.py" "config.py" "injector.py" "auth.py" "pwf_license.py")
+FILES=("main.pyc" "config.pyc" "injector.pyc" "auth.pyc" "pwf_license.pyc")
 
 for file in "${FILES[@]}"; do
     curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
@@ -75,9 +64,6 @@ done
 echo -e "${GREEN}[+] System Ready!${RESET}"
 sleep 1
 
-# ==========================================
-# เคลียร์พอร์ตและตั้งค่าเริ่มต้น
-# ==========================================
 if [ ! -f "$SETTING_FILE" ]; then
     echo "MODE=NORMAL" > "$SETTING_FILE"
     echo "MAP_ID=" >> "$SETTING_FILE"
@@ -118,9 +104,6 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
     scan_apps
 fi
 
-# ==========================================
-# ดึงข้อมูลวันหมดอายุคีย์ (ซ่อน Error ถ้ามี)
-# ==========================================
 echo -e "${WHITE}[>] Fetching License Info...${RESET}"
 python -c "
 import sys, os
@@ -140,9 +123,6 @@ except Exception as e:
 
 stty sane 2>/dev/null
 
-# ==========================================
-# หน้าต่างเมนูหลัก
-# ==========================================
 while true; do
     clear
     MODE_STATUS=$(grep "^MODE=" "$SETTING_FILE" | cut -d'=' -f2)
@@ -185,7 +165,10 @@ while true; do
             
             clear
             echo -e "${WHITE}[>] Initializing Engine...${RESET}"
-            python -u main.py &
+            # ==========================================
+            # [แก้ไขแล้ว] สั่งรันไฟล์ main.pyc แทน
+            # ==========================================
+            python -u main.pyc &
             PY_PID=$!
             
             echo -e "${CYAN}========================================${RESET}"
