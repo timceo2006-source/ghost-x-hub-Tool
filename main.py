@@ -4,6 +4,8 @@ import threading
 import os
 import sys
 import logging
+import urllib.request
+import json
 from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
@@ -26,7 +28,7 @@ clients_last_seen = {}
 clients_retry_count = {}
 clients_usernames = {} 
 clients_combo_index = {} 
-clients_expected_names = {} # [NEW] หน่วยความจำสำหรับล็อคเป้าชื่อตัวละคร
+clients_expected_names = {} 
 
 APPS_PACKAGE_NAMES = load_apps()
 MAX_RETRIES = 3
@@ -45,8 +47,24 @@ for cid in APPS_PACKAGE_NAMES.keys():
     clients_combo_index[cid] = 0
 
 # ==========================================
-# สมอง AI ฉบับล็อคเป้าหมาย (ไร้การเดาสุ่ม)
+# [NEW] ระบบ API ดึงชื่อจากคุกกี้ดิบของ Roblox
 # ==========================================
+def fetch_roblox_name(cookie_str):
+    try:
+        cookie_str = cookie_str.strip()
+        if not cookie_str: return None
+        if "_|WARNING" in cookie_str:
+            cookie_str = "_|WARNING" + cookie_str.split("_|WARNING", 1)[1]
+            
+        req = urllib.request.Request("https://users.roblox.com/v1/users/authenticated")
+        req.add_header("Cookie", f".ROBLOSECURITY={cookie_str}")
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode('utf-8'))
+            return data.get("name")
+    except:
+        return None
+
 def resolve_clone_id(provided_id, username, cfg):
     if provided_id != "auto":
         return provided_id
@@ -55,17 +73,14 @@ def resolve_clone_id(provided_id, username, cfg):
         
     uname_lower = username.lower()
 
-    # 1. แมตช์จากข้อมูลไฟล์คุกกี้ที่เรายัดเข้าไป (แม่นยำ 100% ไร้การเดา)
     for cid, exp_name in clients_expected_names.items():
         if exp_name == uname_lower:
             return cid
 
-    # 2. แมตช์จากชื่อที่เคยเชื่อมต่อไว้แล้ว (สำหรับโหมด Normal ที่เล่นไอดีเดิม)
     for cid, uname in clients_usernames.items():
         if uname.lower() == uname_lower and uname != cid:
             return cid
             
-    # 3. กรณีโหมด Normal จอใหม่เอี่ยม (อาศัยการเข้าคิวทีละจอตาม Launch Delay)
     curr = time.time()
     for cid in APPS_PACKAGE_NAMES.keys():
         seen = clients_last_seen.get(cid, 0)
@@ -139,6 +154,30 @@ def auto_rejoin_checker():
         current_time = time.time()
         cfg = get_settings()
         
+        # ==========================================
+        # ดึงชื่อล่วงหน้า (ใช้ได้ทั้ง Auto-Switch และ Normal)
+        # ==========================================
+        if cfg["MODE"] == "AUTO_SWITCH":
+            for cid in APPS_PACKAGE_NAMES.keys():
+                acc_name, _ = get_switch_data(cid, clients_combo_index)
+                if acc_name and acc_name != "Unknown" and cid not in clients_expected_names:
+                    clients_usernames[cid] = acc_name
+                    clients_expected_names[cid] = acc_name.lower()
+        else:
+            cookie_file = os.path.join(CONFIG_DIR, "cookie.txt")
+            if os.path.exists(cookie_file):
+                with open(cookie_file, "r") as f:
+                    cookies = f.read().splitlines()
+                for i, cid in enumerate(APPS_PACKAGE_NAMES.keys()):
+                    if i < len(cookies) and cookies[i].strip() and cid not in clients_expected_names:
+                        # ยิง API ไปขอชื่อจาก Roblox เงียบๆ
+                        sys.stdout.write(f"\r{WHITE} [>] Fetching API profile for {cid}...{' ' * 10}\r")
+                        sys.stdout.flush()
+                        uname = fetch_roblox_name(cookies[i])
+                        if uname:
+                            clients_usernames[cid] = uname
+                            clients_expected_names[cid] = uname.lower()
+        
         print_ui(cfg, current_time)
         
         sys.stdout.write(f"{WHITE} [>] Initiating system scan...{RESET}\n")
@@ -167,7 +206,8 @@ def auto_rejoin_checker():
             package_name = APPS_PACKAGE_NAMES.get(clone_id)
             
             if retry_count < MAX_RETRIES:
-                print(f"{YELLOW} [!] Recovering {clone_id} (Attempt {retry_count + 1}/{MAX_RETRIES}){RESET}")
+                d_name = clients_usernames.get(clone_id, clone_id)
+                print(f"{YELLOW} [!] Recovering {clone_id} ({d_name}) (Attempt {retry_count + 1}/{MAX_RETRIES}){RESET}")
                 print(f"{WHITE}  |- Terminating old process...{RESET}")
                 os.system(f"su -c 'am force-stop {package_name}' > /dev/null 2>&1")
                 time.sleep(1)
@@ -176,8 +216,6 @@ def auto_rejoin_checker():
                     print(f"{WHITE}  |- Injecting payload...{RESET}")
                     acc_name, acc_cookie = get_switch_data(clone_id, clients_combo_index)
                     if acc_cookie:
-                        # [NEW] ล็อคเป้าชื่อตัวละครทันทีที่รู้ว่าจะยัดไอดีไหน!
-                        clients_expected_names[clone_id] = acc_name.lower()
                         inject_cookie(package_name, clone_id, acc_cookie)
                 
                 print(f"{WHITE}  |- Booting application...{RESET}")
