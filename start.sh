@@ -36,11 +36,7 @@ pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
-# ==========================================
-# ดาวน์โหลดโมดูลแบบเงียบๆ
-# ==========================================
-rm -f main.py config.py injector.py auth.py server.py
-
+rm -f main.py config.py injector.py auth.py
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/main.py" -o main.py > /dev/null 2>&1
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/config.py" -o config.py > /dev/null 2>&1
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/injector.py" -o injector.py > /dev/null 2>&1
@@ -134,9 +130,7 @@ while true; do
             echo -e " Current Map ID: ${WHITE}${MAP_ID:-None}${RESET}"
             echo -e "${CYAN}----------------------------------------${RESET}"
             read -p " Enter New Map ID (Leave blank to clear): " in_map
-            
             sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
-            
             echo -e "\n${GREEN}[+] Map ID updated successfully.${RESET}"
             sleep 1
             ;;
@@ -146,16 +140,13 @@ while true; do
             echo -e "${CYAN}========================================${RESET}"
             echo -e "${WHITE}           AUTO COOKIE NORMAL           ${RESET}"
             echo -e "${CYAN}========================================${RESET}"
-            
             > "$COOKIE_FILE" 
-            
             for i in $(seq 1 $app_count); do
                 pkg=$(sed -n "${i}p" "$CONFIG_DIR/apps.txt")
                 echo -e "\n${WHITE}[Clone $i : $pkg]${RESET}"
                 read -p " Paste Cookie: " cookie_data </dev/tty
                 echo "$cookie_data" >> "$COOKIE_FILE"
             done
-            
             echo -e "\n${GREEN}[+] Cookies saved successfully!${RESET}"
             sleep 2
             ;;
@@ -164,7 +155,6 @@ while true; do
                 touch "$COOKIE_FILE"
             fi
             nano "$COOKIE_FILE"
-            
             clear
             echo -e "\n${GREEN}[+] Returned to menu.${RESET}"
             sleep 1
