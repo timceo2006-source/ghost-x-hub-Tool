@@ -7,7 +7,6 @@ COOKIE_FILE="$CONFIG_DIR/cookie.txt"
 clear
 echo "Loading system... Please wait."
 
-# เพิ่ม nano เข้าไปในรายการติดตั้งเพื่อให้แก้ไขไฟล์ใน Termux ได้
 pkg update -y > /dev/null 2>&1
 pkg install python openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 pip install flask > /dev/null 2>&1
@@ -84,11 +83,12 @@ while true; do
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [1] Start System"
     echo -e " [2] Rescan Roblox Apps"
-    echo -e " [3] Setup Normal Cookies (Manual Input)"
-    echo -e " [4] Edit Cookie File (Advanced)"
-    echo -e " [5] Toggle Mode (Normal / Auto-Switch)"
-    echo -e " [6] Kill All Roblox Apps"
-    echo -e " [7] Exit"
+    echo -e " [3] Set Target Map (Place ID)"
+    echo -e " [4] Auto Cookie Normal"
+    echo -e " [5] Edit Cookie Normal"
+    echo -e " [6] Toggle Mode (Normal / Auto-Switch)"
+    echo -e " [7] Kill All Roblox Apps"
+    echo -e " [8] Exit"
     echo -e "${CYAN}========================================${RESET}"
     read -p " Select Option: " opt
 
@@ -128,9 +128,23 @@ while true; do
             ;;
         3)
             clear
+            echo -e "${CYAN}========================================${RESET}"
+            echo -e "${WHITE}           MAP CONFIGURATION            ${RESET}"
+            echo -e "${CYAN}========================================${RESET}"
+            echo -e " Current Map ID: ${WHITE}${MAP_ID:-None}${RESET}"
+            echo -e "${CYAN}----------------------------------------${RESET}"
+            read -p " Enter New Map ID (Leave blank to clear): " in_map
+            
+            sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
+            
+            echo -e "\n${GREEN}[+] Map ID updated successfully.${RESET}"
+            sleep 1
+            ;;
+        4)
+            clear
             app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
             echo -e "${CYAN}========================================${RESET}"
-            echo -e "${WHITE}          NORMAL COOKIE SETUP           ${RESET}"
+            echo -e "${WHITE}           AUTO COOKIE NORMAL           ${RESET}"
             echo -e "${CYAN}========================================${RESET}"
             
             > "$COOKIE_FILE" 
@@ -145,18 +159,17 @@ while true; do
             echo -e "\n${GREEN}[+] Cookies saved successfully!${RESET}"
             sleep 2
             ;;
-        4)
+        5)
             if [ ! -f "$COOKIE_FILE" ]; then
                 touch "$COOKIE_FILE"
             fi
-            # เปิดโปรแกรม nano เพื่อให้ผู้ใช้แก้ไขไฟล์คุกกี้ได้โดยตรง
             nano "$COOKIE_FILE"
             
             clear
             echo -e "\n${GREEN}[+] Returned to menu.${RESET}"
             sleep 1
             ;;
-        5)
+        6)
             if [ "$MODE_STATUS" == "NORMAL" ]; then
                 sed -i "s/^MODE=.*/MODE=AUTO_SWITCH/" "$SETTING_FILE"
                 app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
@@ -168,13 +181,13 @@ while true; do
             fi
             sleep 1
             ;;
-        6)
+        7)
             echo -e "\n${WHITE}[>] Terminating processes...${RESET}"
             su -c 'pm list packages | grep roblox | cut -d":" -f2 | xargs -I {} am force-stop {}'
             echo -e "${GREEN}[+] All apps terminated.${RESET}"
             sleep 1
             ;;
-        7)
+        8|0)
             clear
             exit 0
             ;;
