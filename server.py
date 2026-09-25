@@ -106,42 +106,20 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     cookies_db = f"{webview_dir}/Cookies"
     xml_dir = f"{data_dir}/shared_prefs"
     xml_file = f"{xml_dir}/{package_name}_preferences.xml"
-    template_db = f"{CONFIG_DIR}/Template_Cookies_{package_name}.db"
     
-    print(f"{YELLOW}  [DEBUG] เริ่มกระบวนการ ZERO-STATE (รีเซ็ตโรงงานด้วยมือ)...{RESET}", flush=True)
+    print(f"{YELLOW}  [DEBUG] เริ่มกระบวนการฉีดคุกกี้ (Targeted Wipe Mode)...{RESET}", flush=True)
     
-    # 1. 💥 ล้างบางเกมแบบ 100% (ลบทุกอย่างทิ้งให้เกลี้ยง รับประกันการกลับไปหน้า Login)
-    os.system(f"su -c 'rm -rf {data_dir}/shared_prefs'")
-    os.system(f"su -c 'rm -rf {data_dir}/app_webview'")
-    os.system(f"su -c 'rm -rf {data_dir}/cache'")
-    os.system(f"su -c 'rm -rf {data_dir}/code_cache'")
-    os.system(f"su -c 'rm -rf {data_dir}/files'")
-    os.system(f"su -c 'rm -rf {data_dir}/databases'")
-    os.system(f"su -c 'rm -rf {data_dir}/no_backup'")
+    # 🎯 1. ถล่มจุดซ่อนไอดีเก่าตามที่เรดาร์สแกนเจอ
+    os.system(f"su -c 'rm -f {xml_dir}/prefs.xml'")
+    os.system(f"su -c 'rm -rf {data_dir}/files/appData/LocalStorage/*'")
     
-    # 2. 🗂️ ระบบ "แม่แบบ" (Template) เพื่อลดการเปิด/ปิดเกม
-    check_template = os.popen(f"su -c 'ls {template_db} 2>/dev/null'").read().strip()
+    # 🎯 2. ล้างประวัติเซสชันอื่นๆ ให้เกลี้ยง
+    os.system(f"su -c 'rm -f {xml_dir}/*.xml'")
+    os.system(f"su -c 'rm -rf {webview_dir}/Local\\ Storage/*'")
+    os.system(f"su -c 'rm -rf {webview_dir}/Session\\ Storage/*'")
+    os.system(f"su -c 'rm -rf {webview_dir}/Cache/*'")
     
-    if not check_template:
-        print(f"{YELLOW}  [DEBUG] ไม่พบแม่แบบ Database! กำลังสร้าง (ทำแค่ครั้งเดียวเท่านั้น)...{RESET}", flush=True)
-        # เปิดเกมล่อ 1 ครั้ง เพื่อให้มันสร้างโครงสร้างไฟล์ที่ถูกต้องของเครื่องนี้
-        os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
-        time.sleep(8)
-        os.system(f"su -c 'am force-stop {package_name}'")
-        time.sleep(2)
-        # ก๊อปปี้ไฟล์ที่เกมเพิ่งสร้าง มาเก็บเป็นแม่แบบ
-        os.system(f"su -c 'cp {cookies_db} {template_db}'")
-        os.system(f"su -c 'chmod 777 {template_db}'")
-        print(f"{GREEN}  [DEBUG] สร้างแม่แบบสำเร็จ! ครั้งต่อไปจะเร็วขึ้น 2 เท่า!{RESET}", flush=True)
-        
-        # ล้างบางอีกรอบเพื่อความชัวร์
-        os.system(f"su -c 'rm -rf {data_dir}/shared_prefs'")
-        os.system(f"su -c 'rm -rf {data_dir}/app_webview'")
-    
-    # 3. 🧠 โยนแม่แบบลงไป แล้วยัดคุกกี้ (ไม่ต้องเปิดล่อแล้ว)
-    os.system(f"su -c 'mkdir -p {webview_dir}'")
-    os.system(f"su -c 'cp {template_db} {cookies_db}'")
-    
+    # 🧠 3. แทรกซึม XML (สมองซีกซ้าย)
     xml_content = f"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\".ROBLOSECURITY\">{acc_cookie}</string>\n</map>"
     tmp_xml = f"{CONFIG_DIR}/tmp_xml_{clone_id}.xml"
     with open(tmp_xml, "w") as f:
@@ -150,6 +128,17 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     os.system(f"su -c 'mkdir -p {xml_dir}'")
     os.system(f"su -c 'cp {tmp_xml} {xml_file}'")
     os.system(f"rm -f {tmp_xml}")
+    
+    # 💉 4. เตรียมฐานข้อมูล SQLite
+    check_db = os.popen(f"su -c 'ls {cookies_db} 2>/dev/null'").read().strip()
+    if not check_db:
+        print(f"{YELLOW}  [DEBUG] ไม่พบโครงสร้าง Database! สร้างโครงสร้างใหม่ (รอ 7 วิ)...{RESET}", flush=True)
+        os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1'")
+        time.sleep(7)
+        os.system(f"su -c 'am force-stop {package_name}'")
+        time.sleep(2)
+        
+    os.system(f"su -c 'rm -f {cookies_db}-journal {cookies_db}-wal {cookies_db}-shm'")
     
     safe_cookie = acc_cookie.replace("'", "''")
     now = (int(time.time()) + 11644473600) * 1000000
@@ -178,12 +167,11 @@ def inject_cookie(package_name, clone_id, acc_cookie, acc_name):
     else:
         print(f"{CYAN}  [SUCCESS] ฉีดคุกกี้ XML + SQLite สำเร็จ: {acc_name}{RESET}", flush=True)
     
-    # 4. คืนสิทธิ์ไฟล์กันเกมเด้ง
+    # 5. คืนสิทธิ์ไฟล์กันเกมเด้ง
     app_uid = os.popen(f"su -c 'stat -c %u {data_dir}'").read().strip()
     if app_uid:
         os.system(f"su -c 'chown -R {app_uid}:{app_uid} {data_dir}'")
-        os.system(f"su -c 'chmod -R 777 {data_dir}/shared_prefs'")
-        os.system(f"su -c 'chmod -R 777 {data_dir}/app_webview'")
+        os.system(f"su -c 'chmod -R 777 {xml_dir}'")
     
     os.system(f"su -c 'rm -f /data/local/tmp/inject_{clone_id}.sql'")
     os.system(f"rm -f {tmp_sql}")
