@@ -10,6 +10,67 @@ from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
 
+# ==========================================
+# 1. ระบบรักษาความปลอดภัย (PWF AUTH)
+# ==========================================
+try:
+    from pwf_license import PWFLicense
+except ImportError:
+    print("\033[91m [!] Missing Security Module (pwf_license.py). Please ensure the file is in the directory.\033[0m")
+    sys.exit(1)
+
+LICENSE_FILE = os.path.join(CONFIG_DIR, "license.key")
+
+def verify_license():
+    client = PWFLicense()
+    
+    while True:
+        user_key = ""
+        if os.path.exists(LICENSE_FILE):
+            with open(LICENSE_FILE, "r") as f:
+                user_key = f.read().strip()
+                
+        if not user_key:
+            sys.stdout.write(f"\033[H\033[J")
+            print(f"\033[96m========================================\033[0m")
+            print(f"\033[97m           GHOST X HUB - AUTH           \033[0m")
+            print(f"\033[96m========================================\033[0m")
+            user_key = input(f"\033[93m [?] Enter License Key: \033[0m").strip()
+            
+            if not user_key:
+                continue
+                
+        print(f"\033[97m [>] Verifying License...\033[0m")
+        result = client.login(user_key)
+        
+        if result.get("success"):
+            with open(LICENSE_FILE, "w") as f:
+                f.write(user_key)
+            print(f"\033[92m [+] License Verified! Welcome to Ghost X Hub.\033[0m")
+            time.sleep(1)
+            break
+        else:
+            print(f"\033[91m [-] Authentication Failed: {result.get('message', 'Invalid Key')}\033[0m")
+            if os.path.exists(LICENSE_FILE):
+                os.remove(LICENSE_FILE)
+            time.sleep(2)
+            
+    def on_revoked(code, message):
+        print(f"\n\033[91m========================================\033[0m")
+        print(f"\033[91m [!] LICENSE REVOKED / EXPIRED \033[0m")
+        print(f"\033[93m Reason: {message}\033[0m")
+        print(f"\033[91m========================================\033[0m")
+        print("\033[97m [>] Terminating Ghost X Hub Engine...\033[0m")
+        os._exit(0)
+        
+    threading.Thread(target=client.run_heartbeat, args=(on_revoked,), daemon=True).start()
+    return True
+
+verify_license()
+
+# ==========================================
+# 2. ระบบหลักของ Ghost X Hub (Core Engine)
+# ==========================================
 os.environ.pop('WERKZEUG_RUN_MAIN', None)
 os.environ.pop('WERKZEUG_SERVER_FD', None)
 
@@ -47,8 +108,29 @@ for cid in APPS_PACKAGE_NAMES.keys():
     clients_combo_index[cid] = 0
 
 # ==========================================
-# [NEW] ระบบ API ดึงชื่อจากคุกกี้ดิบของ Roblox
+# [NEW] ระบบจัดเรียงจอ (Auto-Grid Layout)
 # ==========================================
+def arrange_window(package_name, clone_index):
+    # ปรับแต่งขนาดจอตรงนี้ได้เลย (หน่วยเป็น Pixel)
+    W = 360   # ความกว้างของ 1 จอ
+    H = 480   # ความสูงของ 1 จอ
+    COLS = 2  # จำนวนจอต่อ 1 แถว (จัดเรียงแบบ ซ้าย-ขวา)
+    
+    row = (clone_index - 1) // COLS
+    col = (clone_index - 1) % COLS
+    
+    left = col * W
+    top = row * H
+    right = left + W
+    bottom = top + H
+    
+    # คำสั่งดึง Task ID ของแอป และสั่งปรับขนาดผ่าน Window Manager
+    cmd = f"su -c \"dumpsys activity tasks | grep '{package_name}' | grep -o 'taskId=[0-9]*' | cut -d'=' -f2 | head -n 1\""
+    task_id = os.popen(cmd).read().strip()
+    
+    if task_id and task_id.isdigit():
+        os.system(f"su -c 'am task resize {task_id} {left} {top} {right} {bottom}' > /dev/null 2>&1")
+
 def fetch_roblox_name(cookie_str):
     try:
         cookie_str = cookie_str.strip()
@@ -70,23 +152,15 @@ def resolve_clone_id(provided_id, username, cfg):
         return provided_id
     if not username or username == "Unknown":
         return None
-        
     uname_lower = username.lower()
-
     for cid, exp_name in clients_expected_names.items():
-        if exp_name == uname_lower:
-            return cid
-
+        if exp_name == uname_lower: return cid
     for cid, uname in clients_usernames.items():
-        if uname.lower() == uname_lower and uname != cid:
-            return cid
-            
+        if uname.lower() == uname_lower and uname != cid: return cid
     curr = time.time()
     for cid in APPS_PACKAGE_NAMES.keys():
         seen = clients_last_seen.get(cid, 0)
-        if seen == 0 or (curr - seen) > cfg["TIMEOUT"]:
-            return cid
-            
+        if seen == 0 or (curr - seen) > cfg["TIMEOUT"]: return cid
     return list(APPS_PACKAGE_NAMES.keys())[0]
 
 @app.route('/heartbeat', methods=['POST'])
@@ -115,12 +189,8 @@ def heartbeat():
 @app.route('/task_complete', methods=['POST'])
 def task_complete():
     data = request.json
-    raw_cid = data.get("clone_id")
-    username = data.get("username")
-    cfg = get_settings()
-    
-    clone_id = resolve_clone_id(raw_cid, username, cfg)
-    if clone_id and cfg["MODE"] == "AUTO_SWITCH":
+    clone_id = resolve_clone_id(data.get("clone_id"), data.get("username"), get_settings())
+    if clone_id and get_settings()["MODE"] == "AUTO_SWITCH":
         clients_combo_index[clone_id] = clients_combo_index.get(clone_id, 0) + 1
         clients_last_seen[clone_id] = 0 
     return "OK", 200
@@ -154,9 +224,6 @@ def auto_rejoin_checker():
         current_time = time.time()
         cfg = get_settings()
         
-        # ==========================================
-        # ดึงชื่อล่วงหน้า (ใช้ได้ทั้ง Auto-Switch และ Normal)
-        # ==========================================
         if cfg["MODE"] == "AUTO_SWITCH":
             for cid in APPS_PACKAGE_NAMES.keys():
                 acc_name, _ = get_switch_data(cid, clients_combo_index)
@@ -170,7 +237,6 @@ def auto_rejoin_checker():
                     cookies = f.read().splitlines()
                 for i, cid in enumerate(APPS_PACKAGE_NAMES.keys()):
                     if i < len(cookies) and cookies[i].strip() and cid not in clients_expected_names:
-                        # ยิง API ไปขอชื่อจาก Roblox เงียบๆ
                         sys.stdout.write(f"\r{WHITE} [>] Fetching API profile for {cid}...{' ' * 10}\r")
                         sys.stdout.flush()
                         uname = fetch_roblox_name(cookies[i])
@@ -223,6 +289,15 @@ def auto_rejoin_checker():
                     os.system(f"su -c 'am start -a android.intent.action.VIEW -d \"roblox://placeId={cfg['MAP_ID']}\" -p {package_name}' > /dev/null 2>&1")
                 else:
                     os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1' > /dev/null 2>&1")
+                    
+                # [NEW] จัดหน้าต่างแอปให้เล็กลงและเข้าที่
+                print(f"{WHITE}  |- Arranging window layout...{RESET}")
+                time.sleep(4) # รอให้แอปเปิดติดสักพักถึงจะมี Task ID
+                try:
+                    c_idx = int(clone_id.split('_')[1])
+                except:
+                    c_idx = 1
+                arrange_window(package_name, c_idx)
                     
                 clients_last_seen[clone_id] = time.time() + 45 
                 clients_retry_count[clone_id] = retry_count + 1
