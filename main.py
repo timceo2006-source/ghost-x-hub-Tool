@@ -8,17 +8,10 @@ from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
 
-# ==========================================
-# 1. ระบบกำจัดตัวแปรผี (ป้องกัน Error WERKZEUG_SERVER_FD)
-# ==========================================
 os.environ.pop('WERKZEUG_RUN_MAIN', None)
 os.environ.pop('WERKZEUG_SERVER_FD', None)
 
 app = Flask(__name__)
-
-# ==========================================
-# 2. ปิดข้อความของ Flask (Serving, Debug, Warning)
-# ==========================================
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 app.logger.disabled = True
@@ -33,8 +26,9 @@ clients_last_seen = {}
 clients_retry_count = {}
 clients_usernames = {} 
 clients_combo_index = {} 
-APPS_PACKAGE_NAMES = load_apps()
+clients_expected_names = {} # [NEW] หน่วยความจำสำหรับล็อคเป้าชื่อตัวละคร
 
+APPS_PACKAGE_NAMES = load_apps()
 MAX_RETRIES = 3
 
 GREEN = '\033[92m'
@@ -50,31 +44,67 @@ for cid in APPS_PACKAGE_NAMES.keys():
     clients_usernames[cid] = cid 
     clients_combo_index[cid] = 0
 
+# ==========================================
+# สมอง AI ฉบับล็อคเป้าหมาย (ไร้การเดาสุ่ม)
+# ==========================================
+def resolve_clone_id(provided_id, username, cfg):
+    if provided_id != "auto":
+        return provided_id
+    if not username or username == "Unknown":
+        return None
+        
+    uname_lower = username.lower()
+
+    # 1. แมตช์จากข้อมูลไฟล์คุกกี้ที่เรายัดเข้าไป (แม่นยำ 100% ไร้การเดา)
+    for cid, exp_name in clients_expected_names.items():
+        if exp_name == uname_lower:
+            return cid
+
+    # 2. แมตช์จากชื่อที่เคยเชื่อมต่อไว้แล้ว (สำหรับโหมด Normal ที่เล่นไอดีเดิม)
+    for cid, uname in clients_usernames.items():
+        if uname.lower() == uname_lower and uname != cid:
+            return cid
+            
+    # 3. กรณีโหมด Normal จอใหม่เอี่ยม (อาศัยการเข้าคิวทีละจอตาม Launch Delay)
+    curr = time.time()
+    for cid in APPS_PACKAGE_NAMES.keys():
+        seen = clients_last_seen.get(cid, 0)
+        if seen == 0 or (curr - seen) > cfg["TIMEOUT"]:
+            return cid
+            
+    return list(APPS_PACKAGE_NAMES.keys())[0]
+
 @app.route('/heartbeat', methods=['POST'])
 def heartbeat():
     data = request.json
-    clone_id = data.get("clone_id")
+    raw_cid = data.get("clone_id")
     username = data.get("username") 
     cfg = get_settings()
     
-    if clone_id:
-        if cfg["MODE"] == "AUTO_SWITCH":
-            expected_name, _ = get_switch_data(clone_id, clients_combo_index)
-            if username and expected_name and expected_name != "Unknown":
-                if username.lower() != expected_name.lower():
-                    clients_last_seen[clone_id] = 0
-                    return "MISMATCH", 200
-        
-        clients_last_seen[clone_id] = time.time()
-        clients_retry_count[clone_id] = 0 
-        if username: clients_usernames[clone_id] = username
+    clone_id = resolve_clone_id(raw_cid, username, cfg)
+    if not clone_id: return "WAIT", 200
+    
+    if cfg["MODE"] == "AUTO_SWITCH":
+        expected_name, _ = get_switch_data(clone_id, clients_combo_index)
+        if username and expected_name and expected_name != "Unknown":
+            if username.lower() != expected_name.lower():
+                clients_last_seen[clone_id] = 0
+                return "MISMATCH", 200
+    
+    clients_last_seen[clone_id] = time.time()
+    clients_retry_count[clone_id] = 0 
+    if username and username != "Unknown": 
+        clients_usernames[clone_id] = username
     return "OK", 200
 
 @app.route('/task_complete', methods=['POST'])
 def task_complete():
     data = request.json
-    clone_id = data.get("clone_id")
+    raw_cid = data.get("clone_id")
+    username = data.get("username")
     cfg = get_settings()
+    
+    clone_id = resolve_clone_id(raw_cid, username, cfg)
     if clone_id and cfg["MODE"] == "AUTO_SWITCH":
         clients_combo_index[clone_id] = clients_combo_index.get(clone_id, 0) + 1
         clients_last_seen[clone_id] = 0 
@@ -146,6 +176,8 @@ def auto_rejoin_checker():
                     print(f"{WHITE}  |- Injecting payload...{RESET}")
                     acc_name, acc_cookie = get_switch_data(clone_id, clients_combo_index)
                     if acc_cookie:
+                        # [NEW] ล็อคเป้าชื่อตัวละครทันทีที่รู้ว่าจะยัดไอดีไหน!
+                        clients_expected_names[clone_id] = acc_name.lower()
                         inject_cookie(package_name, clone_id, acc_cookie)
                 
                 print(f"{WHITE}  |- Booting application...{RESET}")
@@ -171,5 +203,11 @@ def auto_rejoin_checker():
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
+    try:
+        cli = sys.modules.get('flask.cli')
+        if cli:
+            cli.show_server_banner = lambda *x: None
+    except:
+        pass
     app.run(host='0.0.0.0', port=5000, use_reloader=False)
     
