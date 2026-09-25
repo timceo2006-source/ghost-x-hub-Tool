@@ -24,6 +24,7 @@ GREEN = '\033[92m'
 RED = '\033[91m'
 CYAN = '\033[96m'
 WHITE = '\033[97m'
+YELLOW = '\033[93m'
 RESET = '\033[0m'
 
 for cid in APPS_PACKAGE_NAMES.keys():
@@ -62,6 +63,29 @@ def task_complete():
         clients_last_seen[clone_id] = 0 
     return "OK", 200
 
+def print_ui(cfg):
+    sys.stdout.write(f"\033[H\033[J")
+    print(f"{CYAN}========================================{RESET}")
+    print(f"{WHITE}             SYSTEM STATUS              {RESET}")
+    print(f"{CYAN}========================================{RESET}")
+    current_time = time.time()
+    for cid in APPS_PACKAGE_NAMES.keys():
+        l_seen = clients_last_seen.get(cid, 0)
+        d_name = clients_usernames.get(cid, cid)
+        if l_seen == 0 or (current_time - l_seen) > cfg["TIMEOUT"]:
+            print(f"{RED} [-] {d_name} : OFFLINE{RESET}")
+        else:
+            print(f"{GREEN} [+] {d_name} : ONLINE{RESET}")
+    print(f"{CYAN}========================================{RESET}\n")
+
+def countdown(t, msg):
+    for i in range(t, 0, -1):
+        sys.stdout.write(f"\r{YELLOW} [>] {msg} : {i}s remaining...{RESET}")
+        sys.stdout.flush()
+        time.sleep(1)
+    sys.stdout.write(f"\r{' ' * 50}\r")
+    sys.stdout.flush()
+
 def auto_rejoin_checker():
     time.sleep(2) 
     last_report_time = 0
@@ -71,28 +95,19 @@ def auto_rejoin_checker():
         cfg = get_settings()
         
         if current_time - last_report_time >= cfg["CHECK_INTERVAL"]:
-            sys.stdout.write(f"\033[H\033[J")
-            print(f"{CYAN}----------------------------------------{RESET}")
-            print(f"{WHITE}             SYSTEM STATUS              {RESET}")
-            print(f"{CYAN}----------------------------------------{RESET}")
-            
-            for cid in APPS_PACKAGE_NAMES.keys():
-                l_seen = clients_last_seen.get(cid, 0)
-                d_name = clients_usernames.get(cid, cid)
-                if l_seen == 0 or (current_time - l_seen) > cfg["TIMEOUT"]:
-                    print(f"{RED} [-] {d_name} : OFFLINE{RESET}")
-                else:
-                    print(f"{GREEN} [+] {d_name} : ONLINE{RESET}")
-            print(f"{CYAN}----------------------------------------{RESET}\n")
+            print_ui(cfg)
             last_report_time = current_time
 
         action_taken = False
         for clone_id, last_seen in list(clients_last_seen.items()):
-            if current_time - last_seen > cfg["TIMEOUT"]:
+            if time.time() - last_seen > cfg["TIMEOUT"]:
                 retry_count = clients_retry_count.get(clone_id, 0)
                 package_name = APPS_PACKAGE_NAMES.get(clone_id)
                 
                 if retry_count < MAX_RETRIES:
+                    sys.stdout.write(f"\r{WHITE} [>] Processing {clone_id}...{' ' * 20}\r")
+                    sys.stdout.flush()
+                    
                     os.system(f"su -c 'am force-stop {package_name}' > /dev/null 2>&1")
                     time.sleep(1)
                     
@@ -110,17 +125,19 @@ def auto_rejoin_checker():
                     clients_retry_count[clone_id] = retry_count + 1
                     action_taken = True
                     
+                    print_ui(cfg) 
+                    
                     if cfg["LAUNCH_DELAY"] > 0:
-                        time.sleep(cfg["LAUNCH_DELAY"])
+                        countdown(cfg["LAUNCH_DELAY"], "Launch Delay")
                 else:
-                    clients_last_seen[clone_id] = current_time + 300 
+                    clients_last_seen[clone_id] = time.time() + 300 
         
         if action_taken and cfg.get("LOOP_DELAY", 0) > 0:
-            time.sleep(cfg["LOOP_DELAY"])
+            countdown(cfg["LOOP_DELAY"], "Loop Delay")
         else:
             time.sleep(2)
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)
-  
+    
