@@ -16,7 +16,7 @@ mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
 # ==========================================
-# ระบบถามคีย์ (ใส่ </dev/tty เพื่อกันบัคข้ามตอนรันผ่าน curl | bash)
+# ระบบถามคีย์ (ใส่ </dev/tty เพื่อกันบัคข้ามตอนรัน)
 # ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     stty sane 2>/dev/null
@@ -40,19 +40,36 @@ clear
 echo "Loading system... Please wait."
 
 # ==========================================
-# ติดตั้งไลบรารีแบบสำเร็จรูปผ่าน pkg ของ Termux
+# ติดตั้งไลบรารี (แยกส่วน pkg และ pip ป้องกันการล้มเหลวทั้งบรรทัด)
 # ==========================================
-echo -e "${WHITE}[>] Installing core packages (No Compile Required)...${RESET}"
+echo -e "${WHITE}[>] Installing system packages...${RESET}"
 pkg update -y > /dev/null 2>&1
+pkg install python python-cryptography openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
-pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
-pip install flask > /dev/null 2>&1
+echo -e "${WHITE}[>] Installing Python modules...${RESET}"
+pip install --upgrade pip > /dev/null 2>&1
+pip install requests flask > /dev/null 2>&1
 
+# ==========================================
+# ระบบเช็คไลบรารีรายตัว 
+# ==========================================
 echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
-if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
-    echo -e "${RED}[!] Critical Error: Failed to load Python modules.${RESET}"
-    echo -e "${YELLOW}Please restart your Cloud Phone or clear Termux data and try again.${RESET}"
-    exit 1
+MISSING=""
+python -c "import cryptography" 2>/dev/null || MISSING="$MISSING cryptography"
+python -c "import requests" 2>/dev/null || MISSING="$MISSING requests"
+python -c "import flask" 2>/dev/null || MISSING="$MISSING flask"
+
+if [ -n "$MISSING" ]; then
+    echo -e "${RED}[!] Missing modules:$MISSING${RESET}"
+    echo -e "${YELLOW}[>] Attempting force install...${RESET}"
+    # รัน pip แบบเปิดเผย Error ให้เห็นบนหน้าจอเผื่อติดตั้งไม่ผ่าน
+    pip install requests flask cryptography
+    
+    if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
+        echo -e "${RED}[!] Critical Error: Force install failed.${RESET}"
+        echo -e "${YELLOW}Please show the error messages above to the developer.${RESET}"
+        exit 1
+    fi
 fi
 
 # ==========================================
