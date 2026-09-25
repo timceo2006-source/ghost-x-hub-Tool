@@ -172,10 +172,21 @@ while true; do
             sleep 1
             ;;
         7)
-            echo -e "\n${WHITE}[>] Terminating processes...${RESET}"
-            su -c 'pm list packages | grep roblox | cut -d":" -f2 | xargs -I {} am force-stop {}'
+            echo -e "\n${WHITE}[>] Terminating all Roblox instances...${RESET}"
+            if [ -f "$CONFIG_DIR/apps.txt" ]; then
+                while IFS= read -r pkg; do
+                    if [ -n "$pkg" ]; then
+                        clean_pkg=$(echo "$pkg" | tr -d '\r' | tr -d ' ')
+                        echo -e "  |- Force stopping: $clean_pkg"
+                        # ปิดแบบปกติ
+                        su -c "am force-stop $clean_pkg" > /dev/null 2>&1
+                        # ท่าไม้ตาย ปิดโปรเซสระดับลึก
+                        su -c "killall -9 $clean_pkg" > /dev/null 2>&1 
+                    fi
+                done < "$CONFIG_DIR/apps.txt"
+            fi
             echo -e "${GREEN}[+] All apps terminated.${RESET}"
-            sleep 1
+            sleep 2
             ;;
         8|0)
             clear
