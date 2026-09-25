@@ -19,6 +19,7 @@ mkdir -p "$SWITCH_DIR" 2>/dev/null
 # ระบบถามคีย์ก่อนเข้าเมนู
 # ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
+    stty sane 2>/dev/null
     clear
     echo -e "${CYAN}========================================${RESET}"
     echo -e "${WHITE}           GHOST X HUB - AUTH           ${RESET}"
@@ -101,7 +102,6 @@ try:
         key = f.read().strip()
     res = client.login(key)
     if res.get('success'):
-        # ดึงตัวแปรเวลาหมดอายุออกมาโชว์
         print(res.get('expires', res.get('expiry', 'Valid (Active)')))
     else:
         print('Invalid or Expired')
@@ -109,14 +109,22 @@ except Exception:
     print('Unknown (Check pwf_license.py)')
 " > "$CONFIG_DIR/key_expiry.txt" 2>/dev/null
 
+# [FIXED] รีเซ็ตสถานะ Terminal เพื่อแก้บัคตัวหนังสือไหลเป็นขั้นบันได
+stty sane 2>/dev/null
+
 # ==========================================
-# หน้าต่างเมนูหลัก (อัปเดตชื่อและเวลาคีย์)
+# หน้าต่างเมนูหลัก
 # ==========================================
 while true; do
     clear
     MODE_STATUS=$(grep "^MODE=" "$SETTING_FILE" | cut -d'=' -f2)
     MAP_ID=$(grep "^MAP_ID=" "$SETTING_FILE" | cut -d'=' -f2)
-    KEY_EXPIRY=$(cat "$CONFIG_DIR/key_expiry.txt" 2>/dev/null)
+    
+    # ดึงข้อความมาแบบตัดช่องว่างบรรทัดทิ้งให้หมด
+    KEY_EXPIRY=$(cat "$CONFIG_DIR/key_expiry.txt" 2>/dev/null | tr -d '\r\n')
+    if [ -z "$KEY_EXPIRY" ]; then
+        KEY_EXPIRY="Unknown Error"
+    fi
     
     echo -e "${CYAN}========================================${RESET}"
     echo -e "${WHITE}          Ghost X Tool Manager          ${RESET}"
