@@ -1,439 +1,277 @@
-// PWFKeys SDK v2.0  ·  build 03x78dr  ·  csharp  ·  app 8f5c522f-3e72-4078-b3ed-f7c6dd364f8d  ·  generated 2026-09-25 UTC
-// Auto-generated — regenerate from the SDK Generator instead of editing by hand.
+# PWFKeys SDK v2.0  ·  build 1pi2b4d  ·  python  ·  app 8f5c522f-3e72-4078-b3ed-f7c6dd364f8d  ·  generated 2026-09-25 UTC
+# Auto-generated — regenerate from the SDK Generator instead of editing by hand.
 
-using System;
-using System.Collections.Generic;
-using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
-using System.Management;
+# Requires: pip install requests cryptography
+import requests
+import platform
+import subprocess
+import json as _json
+import base64
+import hashlib
+import hmac
+import os
+import time
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
 
-namespace PWFLicense
-{
-    // AES-256-CBC envelope encryption — mirrors the server's PayloadCrypto.
-    public class CryptoEnvelope
-    {
-        private readonly byte[] _encKey;
-        private readonly byte[] _macKey;
-        private const int MaxDriftSeconds = 300; // keep in sync with the server
 
-        public CryptoEnvelope(string appSecret)
-        {
-            using (var sha = SHA256.Create())
-            {
-                _encKey = sha.ComputeHash(Encoding.UTF8.GetBytes("enc:" + appSecret));
-                _macKey = sha.ComputeHash(Encoding.UTF8.GetBytes("mac:" + appSecret));
-            }
-        }
+class CryptoEnvelope:
+    """AES-256-CBC envelope encryption — mirrors the server's PayloadCrypto."""
+    MAX_DRIFT = 300  # seconds — keep in sync with the server
 
-        public string Encrypt(Dictionary<string, object> data)
-        {
-            string json = JsonSerializer.Serialize(data);
+    def __init__(self, app_secret):
+        self.enc_key = hashlib.sha256(("enc:" + app_secret).encode()).digest()
+        self.mac_key = hashlib.sha256(("mac:" + app_secret).encode()).digest()
 
-            byte[] iv = new byte[16];
-            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(iv);
+    def encrypt(self, data):
+        raw = _json.dumps(data).encode()
+        iv = os.urandom(16)
+        padder = padding.PKCS7(128).padder()
+        padded = padder.update(raw) + padder.finalize()
+        encryptor = Cipher(algorithms.AES(self.enc_key), modes.CBC(iv)).encryptor()
+        ct = encryptor.update(padded) + encryptor.finalize()
+        p = base64.b64encode(iv + ct).decode()
+        t = int(time.time())
+        s = hmac.new(self.mac_key, (p + str(t)).encode(), hashlib.sha256).hexdigest()
+        return _json.dumps({"p": p, "t": t, "s": s})
 
-            byte[] cipher;
-            using (var aes = Aes.Create())
-            {
-                aes.Key = _encKey; aes.IV = iv;
-                aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7;
-                using (var enc = aes.CreateEncryptor())
-                {
-                    byte[] plain = Encoding.UTF8.GetBytes(json);
-                    cipher = enc.TransformFinalBlock(plain, 0, plain.Length);
-                }
-            }
+    def decrypt(self, envelope_json):
+        env = _json.loads(envelope_json)
+        if not all(k in env for k in ("p", "t", "s")):
+            raise ValueError("Invalid envelope format")
+        p, t, s = env["p"], int(env["t"]), env["s"]
 
-            byte[] combined = new byte[iv.Length + cipher.Length];
-            Buffer.BlockCopy(iv, 0, combined, 0, iv.Length);
-            Buffer.BlockCopy(cipher, 0, combined, iv.Length, cipher.Length);
+        expected = hmac.new(self.mac_key, (p + str(t)).encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, s):
+            raise ValueError("HMAC verification failed")
 
-            string p = Convert.ToBase64String(combined);
-            long t = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if abs(int(time.time()) - t) > self.MAX_DRIFT:
+            raise ValueError("Request expired (replay protection) - check the system clock")
 
-            string s;
-            using (var hmac = new HMACSHA256(_macKey))
-            {
-                byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(p + t));
-                s = BitConverter.ToString(hash).Replace("-", "").ToLower();
-            }
+        combined = base64.b64decode(p)
+        iv, ct = combined[:16], combined[16:]
+        decryptor = Cipher(algorithms.AES(self.enc_key), modes.CBC(iv)).decryptor()
+        padded = decryptor.update(ct) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        raw = unpadder.update(padded) + unpadder.finalize()
+        return _json.loads(raw)
 
-            return JsonSerializer.Serialize(new Dictionary<string, object>
-            {
-                ["p"] = p, ["t"] = t, ["s"] = s
-            });
-        }
 
-        public Dictionary<string, object> Decrypt(string envelopeJson)
-        {
-            var env = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(envelopeJson);
-            if (env == null || !env.ContainsKey("p") || !env.ContainsKey("t") || !env.ContainsKey("s"))
-                throw new Exception("Invalid envelope format");
+class PWFLicense:
+    BASE_URL = "https://pwfauth.com"
+    APP_SECRET = "ea3e876c7d3a28937cd5ccd798b85a0d08951a7d89289480f789f9a39fb0eef1"
 
-            string p = env["p"].GetString();
-            long t = env["t"].GetInt64();
-            string s = env["s"].GetString();
+    def __init__(self):
+        self.crypto = CryptoEnvelope(self.APP_SECRET)
+        self.session = requests.Session()
+        self.session.headers.update({
+            "X-App-Secret": self.APP_SECRET,
+            "Content-Type": "application/json",
+        })
+        self.session_id = None
+        self.license_key = None
+        self.heartbeat_interval = 30  # seconds; overwritten from the login response
 
-            string expected;
-            using (var hmac = new HMACSHA256(_macKey))
-            {
-                byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(p + t));
-                expected = BitConverter.ToString(hash).Replace("-", "").ToLower();
-            }
-            if (!string.Equals(expected, s, StringComparison.OrdinalIgnoreCase))
-                throw new Exception("HMAC verification failed");
+    # Heartbeat replies that mean the session is gone for good — stop and log out.
+    # (Kept in sync with api/auth/heartbeat.php.)
+    KILL_CODES = {"BANNED", "PAUSED", "EXPIRED", "HWID_RESET", "MAINTENANCE",
+                  "SESSION_REVOKED", "SESSION_EXPIRED", "SESSION_MISMATCH"}
 
-            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            if (Math.Abs(now - t) > MaxDriftSeconds)
-                throw new Exception("Request expired (replay protection) - check the system clock");
+    # How many CONSECUTIVE failed heartbeats end the session locally. Without this,
+    # blocking the license domain in a firewall would keep the app running forever
+    # while the server has long since dropped the session.
+    MAX_HEARTBEAT_FAILURES = 3
 
-            byte[] combined = Convert.FromBase64String(p);
-            byte[] iv = new byte[16];
-            byte[] cipher = new byte[combined.Length - 16];
-            Buffer.BlockCopy(combined, 0, iv, 0, 16);
-            Buffer.BlockCopy(combined, 16, cipher, 0, cipher.Length);
+    def get_hwid(self):
+        """Stable per-machine id. Windows goes through CIM — wmic was deprecated and
+        is GONE from Windows 11 24H2, so anything built on it silently degrades."""
+        try:
+            if platform.system() == "Windows":
+                out = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command",
+                     "(Get-CimInstance Win32_BaseBoard).SerialNumber"],
+                    stderr=subprocess.DEVNULL, creationflags=0x08000000)  # no console window
+                serial = out.decode(errors="ignore").strip()
+                if serial:
+                    return serial
+                return platform.node()
+            with open("/etc/machine-id") as f:
+                return f.read().strip()
+        except Exception:
+            return platform.node()
 
-            string json;
-            using (var aes = Aes.Create())
-            {
-                aes.Key = _encKey; aes.IV = iv;
-                aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7;
-                using (var dec = aes.CreateDecryptor())
-                {
-                    byte[] plain = dec.TransformFinalBlock(cipher, 0, cipher.Length);
-                    json = Encoding.UTF8.GetString(plain);
-                }
-            }
-            return JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-        }
-    }
+    def _parse_reply(self, res):
+        """Shared reply handler for every transport. Surfaces HTTP/transport
+        failures with a readable message instead of a cryptic JSON error, then
+        transparently decrypts the body when the server enveloped it."""
+        raw = res.text or ""
+        if not raw.strip():
+            raise RuntimeError(f"License server returned HTTP {res.status_code} with an empty body.")
+        try:
+            probe = _json.loads(raw)
+        except ValueError:
+            # Not JSON at all — usually a proxy/CDN error page or a wrong base URL.
+            raise RuntimeError(
+                f"License server returned HTTP {res.status_code} with a non-JSON body. "
+                "Check the API base URL.")
+        if isinstance(probe, dict) and all(k in probe for k in ("p", "t", "s")):
+            return self.crypto.decrypt(raw)
+        if res.status_code >= 400 and not (isinstance(probe, dict) and "success" in probe):
+            raise RuntimeError(f"License server returned HTTP {res.status_code}.")
+        return probe  # plain server response (its own success/error_code shape)
 
-    public class LicenseClient
-    {
-        private readonly HttpClient _http = new HttpClient();
-        private readonly string _baseUrl = "https://pwfauth.com";
-        private readonly string _appSecret = "ea3e876c7d3a28937cd5ccd798b85a0d08951a7d89289480f789f9a39fb0eef1";
-        private readonly CryptoEnvelope _crypto;
-        private string _sessionId;
-        private int _hbIntervalMs = 30000; // updated from the server's heartbeat_interval
+    def _post(self, endpoint, body):
+        """Encrypt the request, send it, and hand the reply to _parse_reply."""
+        encrypted = self.crypto.encrypt(body)
+        res = self.session.post(self.BASE_URL + endpoint, data=encrypted, timeout=15)
+        return self._parse_reply(res)
 
-        public string LicenseKey { get; private set; }
+    def login(self, license_key):
+        # login.php also activates the key on first use — no separate activate call.
+        result = self._post("/api/auth/login.php", {
+            "license_key": license_key,
+            "hwid": self.get_hwid(),
+        })
+        if result.get("success"):
+            self.session_id = result.get("session_id")
+            self.license_key = license_key
+            self.heartbeat_interval = int(result.get("heartbeat_interval", 30))
+        return result
 
-        // Server heartbeat responses that mean the session is GONE for good — stop the
-        // loop and sign the user out. (Kept in sync with api/auth/heartbeat.php.)
-        private static readonly HashSet<string> KillCodes = new HashSet<string>
-        { "BANNED", "PAUSED", "EXPIRED", "HWID_RESET", "SESSION_REVOKED", "SESSION_EXPIRED",
-          "SESSION_MISMATCH", "MAINTENANCE" };
+    def check_key(self, license_key):
+        """Lightweight status + feature-map check WITHOUT opening a session
+        (no device seat is consumed). Handy for a launcher/splash screen."""
+        return self._post("/api/auth/check-key.php", {"license_key": license_key})
 
-        // How many CONSECUTIVE failed heartbeats end the session locally. Without this,
-        // blocking the license domain in a firewall would keep the app running forever
-        // while the server has long since dropped the session.
-        private const int MaxHeartbeatFailures = 3;
+    def heartbeat(self):
+        if not self.session_id:
+            return None
+        return self._post("/api/auth/heartbeat.php", {
+            "session_id": self.session_id,
+            "license_key": self.license_key,
+        })
 
-        public LicenseClient()
-        {
-            _crypto = new CryptoEnvelope(_appSecret);
-            _http.DefaultRequestHeaders.Add("X-App-Secret", _appSecret);
-            _http.Timeout = TimeSpan.FromSeconds(15);
-        }
+    def run_heartbeat(self, on_revoked):
+        """Blocking loop (run it on a background thread). Pings on the server's
+        interval and REACTS to the kill switch: the moment an admin bans / pauses /
+        expires / resets or revokes the key, the heartbeat returns success=False and
+        we call on_revoked(error_code, message) then stop.
 
-        public string GetHWID()
-        {
-            try
-            {
-                var searcher = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BaseBoard");
-                foreach (var obj in searcher.Get())
-                    return obj["SerialNumber"]?.ToString() ?? Environment.MachineName;
-            }
-            catch { }
-            return Environment.MachineName;
-        }
+        A single network blip is retried, but MAX_HEARTBEAT_FAILURES consecutive
+        failures also end the session with NETWORK_LOST — the server drops the
+        session anyway, so firewalling this domain must not leave a working app."""
+        failures = 0
+        while self.session_id:
+            time.sleep(self.heartbeat_interval)
+            try:
+                r = self.heartbeat()
+            except Exception:
+                r = None
+            if r is None:
+                if not self.session_id:
+                    return                      # logged out meanwhile
+                failures += 1
+                if failures >= self.MAX_HEARTBEAT_FAILURES:
+                    self.session_id = None
+                    on_revoked("NETWORK_LOST",
+                               "Cannot reach the license server. "
+                               "Please check your connection and sign in again.")
+                    return
+                continue                        # transient — retry next tick
+            failures = 0
+            if r.get("success"):
+                continue
+            code = r.get("error_code", "")
+            if code in self.KILL_CODES:
+                self.session_id = None          # session is dead server-side
+                on_revoked(code, r.get("message", ""))
+                return
+            # Unknown non-success: treat as transient and keep trying.
 
-        // Shared reply handler for every transport. Surfaces HTTP/transport failures
-        // with a readable message instead of a cryptic JSON exception, then
-        // transparently decrypts the body when the server enveloped it.
-        private Dictionary<string, object> ParseReply(string raw, HttpResponseMessage res)
-        {
-            int code = (int)res.StatusCode;
-            if (string.IsNullOrWhiteSpace(raw))
-                throw new Exception($"License server returned HTTP {code} with an empty body.");
+    def _get(self, endpoint, bearer_key=None):
+        """GET whose RESPONSE is enveloped (X-App-Secret rides on the session)."""
+        headers = {"Authorization": "Bearer " + bearer_key} if bearer_key else {}
+        res = self.session.get(self.BASE_URL + endpoint, headers=headers, timeout=15)
+        return self._parse_reply(res)
 
-            Dictionary<string, JsonElement> probe;
-            try { probe = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(raw); }
-            catch
-            {
-                // Not JSON at all — usually a proxy/CDN error page or a wrong base URL.
-                throw new Exception($"License server returned HTTP {code} with a non-JSON body. Check the API base URL.");
-            }
+    def _post_plain(self, endpoint, body):
+        """POST plain JSON — endpoints that do NOT speak the envelope."""
+        res = self.session.post(self.BASE_URL + endpoint, data=_json.dumps(body), timeout=15)
+        return self._parse_reply(res)
 
-            bool isEnvelope = probe != null
-                && probe.ContainsKey("p") && probe.ContainsKey("t") && probe.ContainsKey("s");
+    # App metadata + social links + server "what's new" (name, version, download URL, maintenance flags).
+    def get_app_info(self):
+        return self._get("/api/app/info.php")
 
-            if (isEnvelope)
-                return _crypto.Decrypt(raw);
+    # Remote texts for THIS license (per-key overrides win over app defaults). Key rides in Authorization: Bearer.
+    def get_texts(self):
+        return self._get("/api/app/text.php", self.license_key)
 
-            // Plain JSON: the API's own {success,error_code,message} shape is returned
-            // as-is (callers inspect it); anything else with a failing status is fatal.
-            var plain = JsonSerializer.Deserialize<Dictionary<string, object>>(raw);
-            if (code >= 400 && (plain == null || !plain.ContainsKey("success")))
-                throw new Exception($"License server returned HTTP {code}.");
-            return plain;
-        }
+    # Fetch the active promo / announcement slides configured for this app.
+    def get_slides(self):
+        return self._post("/api/app/slides.php", {"action": "get_slides"})
 
-        // Encrypts the request, sends it, and transparently handles the reply.
-        // The server returns a plain (unencrypted) JSON object when it rejects
-        // the request early — ParseReply detects that instead of failing to decrypt.
-        private async Task<Dictionary<string, object>> PostAsync(string endpoint, Dictionary<string, object> body)
-        {
-            string encrypted = _crypto.Encrypt(body);
-            var content = new StringContent(encrypted, Encoding.UTF8, "application/json");
-            var res = await _http.PostAsync(_baseUrl + endpoint, content);
-            return ParseReply(await res.Content.ReadAsStringAsync(), res);
-        }
+    # Ask for a newer build on the stable channel. Returns update_available + version/sha256/download_url.
+    def check_update(self, current_version):
+        return self._post("/api/update/check.php", {"v": current_version, "channel": "stable", "hwid": self.get_hwid(), "license_key": self.license_key})
 
-        // login.php also activates the key on first use — no separate activate endpoint.
-        public async Task<Dictionary<string, object>> LoginAsync(string licenseKey)
-        {
-            var result = await PostAsync("/api/auth/login.php", new Dictionary<string, object>
-            {
-                ["license_key"] = licenseKey,
-                ["hwid"] = GetHWID()
-            });
+    # Count a click on one of the app's social links (feeds the panel engagement stats).
+    def track_social_click(self, link_id):
+        return self._post("/api/app/social-click.php", {"link_id": link_id})
 
-            bool ok = result.ContainsKey("success")
-                && ((JsonElement)result["success"]).GetBoolean();
-            if (ok)
-            {
-                _sessionId = ((JsonElement)result["session_id"]).GetString();
-                LicenseKey = licenseKey;
-                if (result.ContainsKey("heartbeat_interval"))
-                    _hbIntervalMs = ((JsonElement)result["heartbeat_interval"]).GetInt32() * 1000;
-            }
-            return result;
-        }
+    # Mint a free trial key for this device. Off unless the owner enabled trials (else TRIAL_DISABLED / TRIAL_USED / TRIAL_LIMIT).
+    def create_trial(self):
+        return self._post_plain("/api/auth/trial.php", {"hwid": self.get_hwid()})
 
-        // Lightweight status check WITHOUT opening a session (no device seat used).
-        // Returns the key's current status + its feature map — useful for a launcher
-        // that wants to show entitlements before the user logs in.
-        public async Task<Dictionary<string, object>> CheckKeyAsync(string licenseKey)
-        {
-            return await PostAsync("/api/auth/check-key.php", new Dictionary<string, object>
-            {
-                ["license_key"] = licenseKey
-            });
-        }
+    # Queue an HWID-reset request for admin review (the reply is deliberately identical whether or not the key exists).
+    def request_hwid_reset(self, reason):
+        return self._post_plain("/api/auth/request-hwid-reset.php", {"license_key": self.license_key, "reason": reason})
 
-        public async Task<Dictionary<string, object>> HeartbeatAsync()
-        {
-            if (string.IsNullOrEmpty(_sessionId)) return null;
-            return await PostAsync("/api/auth/heartbeat.php", new Dictionary<string, object>
-            {
-                ["session_id"] = _sessionId,
-                ["license_key"] = LicenseKey
-            });
-        }
+    # Create an end-user account. Only works while the owner has user accounts switched on for this app.
+    def register_account(self, username, password, email):
+        return self._post_plain("/api/auth/account-register.php", {"username": username, "password": password, "email": email})
 
-        // Drives the heartbeat on the server-provided interval and REACTS to the
-        // server's kill switch: the instant an admin bans / pauses / expires / resets
-        // or revokes the key, the next heartbeat comes back success=false and we sign
-        // the user out via onRevoked(errorCode, message).
-        //
-        // A single network blip is retried, but MaxHeartbeatFailures consecutive
-        // failures also end the session with NETWORK_LOST. That matters: the server
-        // drops the session after SESSION_TIMEOUT anyway, so an attacker who firewalls
-        // this domain must NOT be left with a working app.
-        public async Task RunHeartbeatAsync(Action<string, string> onRevoked,
-                                            System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) // typed default: compiles on C# 7.0 / older .NET Framework projects too
-        {
-            int failures = 0;
-            while (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_sessionId))
-            {
-                try { await Task.Delay(_hbIntervalMs, ct); } catch (TaskCanceledException) { return; }
+    # Sign an account in and open a session bound to this machine. Start the heartbeat afterwards, exactly as after a key login — the kill switch works the same way.
+    def login_account(self, username, password):
+        result = self._post_plain("/api/auth/account-login.php", {"username": username, "password": password, "hwid": self.get_hwid()})
+        if result.get("success"):
+            self.session_id = result.get("session_id")
+            self.license_key = result.get("license_key", self.license_key)
+        return result
 
-                Dictionary<string, object> r = null;
-                try { r = await HeartbeatAsync(); }
-                catch { r = null; }
+    # Change an end-user account password. The current password is required — this is not an admin reset.
+    def change_account_password(self, username, current_password, new_password):
+        return self._post_plain("/api/auth/change-password.php", {"username": username, "current_password": current_password, "new_password": new_password})
 
-                if (r == null && _sessionId == null) return;   // logged out meanwhile
-                if (r == null)
-                {
-                    if (++failures >= MaxHeartbeatFailures)
-                    {
-                        _sessionId = null;
-                        onRevoked?.Invoke("NETWORK_LOST",
-                            "Cannot reach the license server. Please check your connection and sign in again.");
-                        return;
-                    }
-                    continue;                                   // transient — retry next tick
-                }
-                failures = 0;
+    # Public price list — subscription levels and legacy plans for this app. No secret and no session needed, and the reply is plain JSON rather than enveloped.
+    def get_pricing(self):
+        return self._get("/api/app/pricing.php?app_id=8f5c522f-3e72-4078-b3ed-f7c6dd364f8d")
 
-                bool ok = r.ContainsKey("success") && ((JsonElement)r["success"]).GetBoolean();
-                if (ok) continue;
+    def logout(self):
+        if not self.session_id:
+            return None
+        result = self._post("/api/auth/logout.php", {
+            "session_id": self.session_id,
+            "license_key": self.license_key,
+        })
+        self.session_id = None
+        return result
 
-                string code = r.ContainsKey("error_code") ? ((JsonElement)r["error_code"]).GetString() : "";
-                string msg  = r.ContainsKey("message")    ? ((JsonElement)r["message"]).GetString()    : "";
-                if (KillCodes.Contains(code))
-                {
-                    _sessionId = null;               // session is dead server-side
-                    onRevoked?.Invoke(code, msg);    // e.g. show message + close the app
-                    return;
-                }
-                // Unknown non-success: treat as transient and keep trying.
-            }
-        }
 
-        // GET whose RESPONSE is enveloped (X-App-Secret is already a default header).
-        // Pass the license key for endpoints that read Authorization: Bearer.
-        private async Task<Dictionary<string, object>> GetAsync(string endpoint, string bearerKey = null)
-        {
-            var req = new HttpRequestMessage(HttpMethod.Get, _baseUrl + endpoint);
-            if (!string.IsNullOrEmpty(bearerKey))
-                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + bearerKey);
-            var res = await _http.SendAsync(req);
-            return ParseReply(await res.Content.ReadAsStringAsync(), res);
-        }
-
-        // POST plain JSON — endpoints that do NOT speak the envelope.
-        private async Task<Dictionary<string, object>> PostPlainAsync(string endpoint, Dictionary<string, object> body)
-        {
-            var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-            var res = await _http.PostAsync(_baseUrl + endpoint, content);
-            return ParseReply(await res.Content.ReadAsStringAsync(), res);
-        }
-
-        // App metadata + social links + server "what's new" (name, version, download URL, maintenance flags).
-        public async Task<Dictionary<string, object>> GetAppInfoAsync()
-        {
-            return await GetAsync("/api/app/info.php");
-        }
-
-        // Remote texts for THIS license (per-key overrides win over app defaults). Key rides in Authorization: Bearer.
-        public async Task<Dictionary<string, object>> GetTextsAsync()
-        {
-            return await GetAsync("/api/app/text.php", LicenseKey);
-        }
-
-        // Fetch the active promo / announcement slides configured for this app.
-        public async Task<Dictionary<string, object>> GetSlidesAsync()
-        {
-            return await PostAsync("/api/app/slides.php", new Dictionary<string, object>
-            {
-                ["action"] = "get_slides"
-            });
-        }
-
-        // Ask for a newer build on the stable channel. Returns update_available + version/sha256/download_url.
-        public async Task<Dictionary<string, object>> CheckUpdateAsync(string currentVersion)
-        {
-            return await PostAsync("/api/update/check.php", new Dictionary<string, object>
-            {
-                ["v"] = currentVersion,
-                ["channel"] = "stable",
-                ["hwid"] = GetHWID(),
-                ["license_key"] = LicenseKey
-            });
-        }
-
-        // Count a click on one of the app's social links (feeds the panel engagement stats).
-        public async Task<Dictionary<string, object>> TrackSocialClickAsync(int linkId)
-        {
-            return await PostAsync("/api/app/social-click.php", new Dictionary<string, object>
-            {
-                ["link_id"] = linkId
-            });
-        }
-
-        // Mint a free trial key for this device. Off unless the owner enabled trials (else TRIAL_DISABLED / TRIAL_USED / TRIAL_LIMIT).
-        public async Task<Dictionary<string, object>> CreateTrialAsync()
-        {
-            return await PostPlainAsync("/api/auth/trial.php", new Dictionary<string, object>
-            {
-                ["hwid"] = GetHWID()
-            });
-        }
-
-        // Queue an HWID-reset request for admin review (the reply is deliberately identical whether or not the key exists).
-        public async Task<Dictionary<string, object>> RequestHwidResetAsync(string reason)
-        {
-            return await PostPlainAsync("/api/auth/request-hwid-reset.php", new Dictionary<string, object>
-            {
-                ["license_key"] = LicenseKey,
-                ["reason"] = reason
-            });
-        }
-
-        // Create an end-user account. Only works while the owner has user accounts switched on for this app.
-        public async Task<Dictionary<string, object>> RegisterAccountAsync(string username, string password, string email)
-        {
-            return await PostPlainAsync("/api/auth/account-register.php", new Dictionary<string, object>
-            {
-                ["username"] = username,
-                ["password"] = password,
-                ["email"] = email
-            });
-        }
-
-        // Sign an account in and open a session bound to this machine. Start the heartbeat afterwards, exactly as after a key login — the kill switch works the same way.
-        public async Task<Dictionary<string, object>> LoginAccountAsync(string username, string password)
-        {
-            var result = await PostPlainAsync("/api/auth/account-login.php", new Dictionary<string, object>
-            {
-                ["username"] = username,
-                ["password"] = password,
-                ["hwid"] = GetHWID()
-            });
-            if (result.ContainsKey("success") && ((JsonElement)result["success"]).GetBoolean())
-            {
-                _sessionId = ((JsonElement)result["session_id"]).GetString();
-                if (result.ContainsKey("license_key")) LicenseKey = ((JsonElement)result["license_key"]).GetString();
-            }
-            return result;
-        }
-
-        // Change an end-user account password. The current password is required — this is not an admin reset.
-        public async Task<Dictionary<string, object>> ChangeAccountPasswordAsync(string username, string currentPassword, string newPassword)
-        {
-            return await PostPlainAsync("/api/auth/change-password.php", new Dictionary<string, object>
-            {
-                ["username"] = username,
-                ["current_password"] = currentPassword,
-                ["new_password"] = newPassword
-            });
-        }
-
-        // Public price list — subscription levels and legacy plans for this app. No secret and no session needed, and the reply is plain JSON rather than enveloped.
-        public async Task<Dictionary<string, object>> GetPricingAsync()
-        {
-            return await GetAsync("/api/app/pricing.php?app_id=8f5c522f-3e72-4078-b3ed-f7c6dd364f8d");
-        }
-
-        public async Task LogoutAsync()
-        {
-            if (string.IsNullOrEmpty(_sessionId)) return;
-            await PostAsync("/api/auth/logout.php", new Dictionary<string, object>
-            {
-                ["session_id"] = _sessionId,
-                ["license_key"] = LicenseKey
-            });
-            _sessionId = null;
-        }
-    }
-}
-
-// Usage:
-//   var client = new LicenseClient();
-//   var result = await client.LoginAsync("YOUR-LICENSE-KEY");
-//   if (((JsonElement)result["success"]).GetBoolean())
-//   {
-//       // (optional) read entitlements returned by login:
-//       //   var features = (JsonElement)result["features"];
-//
-//       // Keep the session alive AND obey the admin kill switch. This call loops
-//       // until the server revokes the key — do NOT just fire a single heartbeat.
-//       await client.RunHeartbeatAsync((code, message) =>
-//       {
-//           // code is one of: BANNED, PAUSED, EXPIRED, HWID_RESET, M
+# Usage:
+#   client = PWFLicense()
+#   result = client.login("YOUR-LICENSE-KEY")
+#   if result.get("success"):
+#       features = result.get("features", {})   # entitlements returned by login
+#
+#       # Keep the session alive AND obey the admin kill switch. Run the loop on a
+#       # background thread so your UI stays responsive; do NOT just ping once.
+#       import threading
+#       def on_revoked(code, message):
+#           # code in {BANNED, PAUSED, EXPIRED, HWID_RESET, MAINTENANCE,
+#           #          SESSION_REVOKED, SESSION_EXPIRED, SESSION_MISMATCH, NETWORK_LOST}
+#           print("Session ended:", code, "-", message)
+#           os._exit(0)  # log the user out of YOUR app here
+#       threading.Thread(target=client.run_heartbeat, args=(on_revoked,), daemon=True).start()
+#       ...
+#       client.logout()
