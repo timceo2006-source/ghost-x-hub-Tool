@@ -1,5 +1,6 @@
 #!/bin/bash
-CONFIG_DIR="/storage/emulated/0/GhostXHub"
+# เปลี่ยนชื่อโฟลเดอร์หลักตามที่คุณต้องการ
+CONFIG_DIR="/storage/emulated/0/Ghost X Tool Manager"
 SWITCH_DIR="$CONFIG_DIR/AutoSwitch"
 SETTING_FILE="$CONFIG_DIR/Setting.txt"
 COOKIE_FILE="$CONFIG_DIR/cookie.txt"
