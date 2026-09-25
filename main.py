@@ -1,5 +1,4 @@
 from flask import Flask, request
-from flask import cli
 import time
 import threading
 import os
@@ -9,9 +8,12 @@ from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
 
-# ปิดข้อความแจ้งเตือนตอนเริ่มเซิร์ฟเวอร์ (ซ่อน Serving Flask และ Debug mode)
-os.environ['WERKZEUG_RUN_MAIN'] = 'true'
-cli.show_server_banner = lambda *x: None
+# ซ่อนข้อความแจ้งเตือนของ Flask แบบปลอดภัย
+import click
+def secho(*args, **kwargs):
+    pass
+click.echo = secho
+click.secho = secho
 
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
@@ -162,5 +164,9 @@ def auto_rejoin_checker():
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
+    # ปิด warning และ banner ให้เงียบที่สุด
+    cli = sys.modules.get('flask.cli', None)
+    if cli:
+        cli.show_server_banner = lambda *x: None
     app.run(host='0.0.0.0', port=5000)
     
