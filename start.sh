@@ -16,7 +16,7 @@ mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
 # ==========================================
-# [NEW] ระบบถามคีย์ก่อนเข้าเมนู
+# ระบบถามคีย์ก่อนเข้าเมนู
 # ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     clear
@@ -88,17 +88,43 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
     scan_apps
 fi
 
+# ==========================================
+# [NEW] ระบบดึงข้อมูลวันหมดอายุคีย์ล่วงหน้า
+# ==========================================
+echo "Fetching License Info..."
+python -c "
+import sys, os
+try:
+    from pwf_license import PWFLicense
+    client = PWFLicense()
+    with open('$LICENSE_FILE', 'r') as f:
+        key = f.read().strip()
+    res = client.login(key)
+    if res.get('success'):
+        # ดึงตัวแปรเวลาหมดอายุออกมาโชว์
+        print(res.get('expires', res.get('expiry', 'Valid (Active)')))
+    else:
+        print('Invalid or Expired')
+except Exception:
+    print('Unknown (Check pwf_license.py)')
+" > "$CONFIG_DIR/key_expiry.txt" 2>/dev/null
+
+# ==========================================
+# หน้าต่างเมนูหลัก (อัปเดตชื่อและเวลาคีย์)
+# ==========================================
 while true; do
     clear
     MODE_STATUS=$(grep "^MODE=" "$SETTING_FILE" | cut -d'=' -f2)
     MAP_ID=$(grep "^MAP_ID=" "$SETTING_FILE" | cut -d'=' -f2)
+    KEY_EXPIRY=$(cat "$CONFIG_DIR/key_expiry.txt" 2>/dev/null)
     
     echo -e "${CYAN}========================================${RESET}"
-    echo -e "${WHITE}           GHOST X HUB PANEL            ${RESET}"
+    echo -e "${WHITE}          Ghost X Tool Manager          ${RESET}"
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [System Mode] : ${WHITE}${MODE_STATUS}${RESET}"
     echo -e " [Target Map]  : ${WHITE}${MAP_ID:-None}${RESET}"
     echo -e " [License Key] : ${GREEN}ACTIVE${RESET}"
+    echo -e " [Key Expiry]  : ${YELLOW}${KEY_EXPIRY}${RESET}"
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [1] Start System"
     echo -e " [2] Rescan Roblox Apps"
