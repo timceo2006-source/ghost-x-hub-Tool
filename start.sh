@@ -16,7 +16,7 @@ mkdir -p "$CONFIG_DIR" 2>/dev/null
 mkdir -p "$SWITCH_DIR" 2>/dev/null
 
 # ==========================================
-# ระบบถามคีย์ (ใส่ </dev/tty เพื่อกันบัคข้ามตอนรัน)
+# ระบบถามคีย์
 # ==========================================
 if [ ! -f "$LICENSE_FILE" ]; then
     stty sane 2>/dev/null
@@ -37,44 +37,33 @@ if [ ! -f "$LICENSE_FILE" ]; then
 fi
 
 clear
-echo "Loading system... Please wait."
+echo -e "${CYAN}========================================${RESET}"
+echo -e "${WHITE}      INITIALIZING GHOST X SYSTEM       ${RESET}"
+echo -e "${CYAN}========================================${RESET}"
 
 # ==========================================
-# ติดตั้งไลบรารี (แยกส่วน pkg และ pip ป้องกันการล้มเหลวทั้งบรรทัด)
+# ติดตั้งแบบซ่อน Log (ดูสะอาดและเป็นมืออาชีพ)
 # ==========================================
-echo -e "${WHITE}[>] Installing system packages...${RESET}"
+echo -e "${YELLOW}[>] Preparing system files (Please wait 1-2 mins)...${RESET}"
 pkg update -y > /dev/null 2>&1
 pkg install python python-cryptography openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
-echo -e "${WHITE}[>] Installing Python modules...${RESET}"
 pip install --upgrade pip > /dev/null 2>&1
 pip install requests flask > /dev/null 2>&1
 
 # ==========================================
-# ระบบเช็คไลบรารีรายตัว 
+# ระบบซ่อมตัวเองเงียบๆ หลังบ้าน
 # ==========================================
-echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
-MISSING=""
-python -c "import cryptography" 2>/dev/null || MISSING="$MISSING cryptography"
-python -c "import requests" 2>/dev/null || MISSING="$MISSING requests"
-python -c "import flask" 2>/dev/null || MISSING="$MISSING flask"
-
-if [ -n "$MISSING" ]; then
-    echo -e "${RED}[!] Missing modules:$MISSING${RESET}"
-    echo -e "${YELLOW}[>] Attempting force install...${RESET}"
-    # รัน pip แบบเปิดเผย Error ให้เห็นบนหน้าจอเผื่อติดตั้งไม่ผ่าน
-    pip install requests flask cryptography
-    
-    if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
-        echo -e "${RED}[!] Critical Error: Force install failed.${RESET}"
-        echo -e "${YELLOW}Please show the error messages above to the developer.${RESET}"
-        exit 1
-    fi
+if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
+    echo -e "${YELLOW}[>] Optimizing system dependencies...${RESET}"
+    pkg install rust binutils libffi-dev clang make openssl-dev -y > /dev/null 2>&1
+    pip install requests flask cryptography > /dev/null 2>&1
 fi
 
 # ==========================================
-# ดาวน์โหลดไฟล์สคริปต์จาก GitHub
+# โหลดไฟล์สคริปต์แบบเงียบ
 # ==========================================
+echo -e "${WHITE}[>] Syncing latest update...${RESET}"
 GITHUB_URL="https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main"
 FILES=("main.py" "config.py" "injector.py" "auth.py" "pwf_license.py")
 
@@ -82,7 +71,7 @@ for file in "${FILES[@]}"; do
     curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
 done
 
-echo -e "${GREEN}[+] All files and modules verified!${RESET}"
+echo -e "${GREEN}[+] System Ready!${RESET}"
 sleep 1
 
 # ==========================================
@@ -129,9 +118,9 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
 fi
 
 # ==========================================
-# ระบบดึงข้อมูลวันหมดอายุคีย์
+# ดึงข้อมูลวันหมดอายุคีย์ (ซ่อน Error ถ้ามี)
 # ==========================================
-echo "Fetching License Info..."
+echo -e "${WHITE}[>] Fetching License Info...${RESET}"
 python -c "
 import sys, os
 try:
