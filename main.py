@@ -63,12 +63,11 @@ def task_complete():
         clients_last_seen[clone_id] = 0 
     return "OK", 200
 
-def print_ui(cfg):
+def print_ui(cfg, current_time):
     sys.stdout.write(f"\033[H\033[J")
     print(f"{CYAN}========================================{RESET}")
     print(f"{WHITE}             SYSTEM STATUS              {RESET}")
     print(f"{CYAN}========================================{RESET}")
-    current_time = time.time()
     for cid in APPS_PACKAGE_NAMES.keys():
         l_seen = clients_last_seen.get(cid, 0)
         d_name = clients_usernames.get(cid, cid)
@@ -80,62 +79,85 @@ def print_ui(cfg):
 
 def countdown(t, msg):
     for i in range(t, 0, -1):
-        sys.stdout.write(f"\r{YELLOW} [>] {msg} : {i}s remaining...{RESET}")
+        sys.stdout.write(f"\r{YELLOW} [>] {msg} : {i}s remaining...{RESET}   ")
         sys.stdout.flush()
         time.sleep(1)
-    sys.stdout.write(f"\r{' ' * 50}\r")
+    sys.stdout.write(f"\r{' ' * 50}\r") 
     sys.stdout.flush()
 
 def auto_rejoin_checker():
     time.sleep(2) 
-    last_report_time = 0
     
     while True:
         current_time = time.time()
         cfg = get_settings()
         
-        if current_time - last_report_time >= cfg["CHECK_INTERVAL"]:
-            print_ui(cfg)
-            last_report_time = current_time
-
-        action_taken = False
-        for clone_id, last_seen in list(clients_last_seen.items()):
-            if time.time() - last_seen > cfg["TIMEOUT"]:
-                retry_count = clients_retry_count.get(clone_id, 0)
-                package_name = APPS_PACKAGE_NAMES.get(clone_id)
-                
-                if retry_count < MAX_RETRIES:
-                    sys.stdout.write(f"\r{WHITE} [>] Processing {clone_id}...{' ' * 20}\r")
-                    sys.stdout.flush()
-                    
-                    os.system(f"su -c 'am force-stop {package_name}' > /dev/null 2>&1")
-                    time.sleep(1)
-                    
-                    if cfg["MODE"] == "AUTO_SWITCH":
-                        acc_name, acc_cookie = get_switch_data(clone_id, clients_combo_index)
-                        if acc_cookie:
-                            inject_cookie(package_name, clone_id, acc_cookie)
-                    
-                    if cfg["MAP_ID"]:
-                        os.system(f"su -c 'am start -a android.intent.action.VIEW -d \"roblox://placeId={cfg['MAP_ID']}\" -p {package_name}' > /dev/null 2>&1")
-                    else:
-                        os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1' > /dev/null 2>&1")
-                        
-                    clients_last_seen[clone_id] = time.time() + 45 
-                    clients_retry_count[clone_id] = retry_count + 1
-                    action_taken = True
-                    
-                    print_ui(cfg) 
-                    
-                    if cfg["LAUNCH_DELAY"] > 0:
-                        countdown(cfg["LAUNCH_DELAY"], "Launch Delay")
-                else:
-                    clients_last_seen[clone_id] = time.time() + 300 
+        # 1. อัปเดตและแสดงแผงหน้าปัดด้านบน
+        print_ui(cfg, current_time)
         
-        if action_taken and cfg.get("LOOP_DELAY", 0) > 0:
-            countdown(cfg["LOOP_DELAY"], "Loop Delay")
-        else:
-            time.sleep(2)
+        # 2. ขั้นตอนการสแกน (โชว์ให้ผู้ใช้เห็นว่าระบบขยับตลอดเวลา)
+        sys.stdout.write(f"{WHITE} [>] Initiating system scan...{RESET}\n")
+        time.sleep(0.5)
+        
+        offline_clones = []
+        for clone_id in APPS_PACKAGE_NAMES.keys():
+            # สร้างเอฟเฟกต์แกล้งโหลด (ให้ดูเหมือนกำลังปิงเช็คข้อมูล)
+            sys.stdout.write(f"\r{WHITE} [>] Verifying {clone_id}...{' ' * 10}\r")
+            sys.stdout.flush()
+            time.sleep(0.4) 
+            
+            last_seen = clients_last_seen.get(clone_id, 0)
+            d_name = clients_usernames.get(clone_id, clone_id)
+            
+            if last_seen == 0 or (current_time - last_seen) > cfg["TIMEOUT"]:
+                sys.stdout.write(f"{RED} [-] {clone_id} ({d_name}) is OFFLINE{' ' * 10}{RESET}\n")
+                offline_clones.append(clone_id)
+            else:
+                sys.stdout.write(f"{GREEN} [+] {clone_id} ({d_name}) is ONLINE{' ' * 10}{RESET}\n")
+        
+        print(f"{CYAN}----------------------------------------{RESET}")
+        
+        # 3. จัดการตัวที่ออฟไลน์
+        action_taken = False
+        for clone_id in offline_clones:
+            retry_count = clients_retry_count.get(clone_id, 0)
+            package_name = APPS_PACKAGE_NAMES.get(clone_id)
+            
+            if retry_count < MAX_RETRIES:
+                print(f"{YELLOW} [!] Recovering {clone_id} (Attempt {retry_count + 1}/{MAX_RETRIES}){RESET}")
+                
+                print(f"{WHITE}  |- Terminating old process...{RESET}")
+                os.system(f"su -c 'am force-stop {package_name}' > /dev/null 2>&1")
+                time.sleep(1)
+                
+                if cfg["MODE"] == "AUTO_SWITCH":
+                    print(f"{WHITE}  |- Injecting payload...{RESET}")
+                    acc_name, acc_cookie = get_switch_data(clone_id, clients_combo_index)
+                    if acc_cookie:
+                        inject_cookie(package_name, clone_id, acc_cookie)
+                
+                print(f"{WHITE}  |- Booting application...{RESET}")
+                if cfg["MAP_ID"]:
+                    os.system(f"su -c 'am start -a android.intent.action.VIEW -d \"roblox://placeId={cfg['MAP_ID']}\" -p {package_name}' > /dev/null 2>&1")
+                else:
+                    os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1' > /dev/null 2>&1")
+                    
+                clients_last_seen[clone_id] = time.time() + 45 
+                clients_retry_count[clone_id] = retry_count + 1
+                action_taken = True
+                
+                # นับถอยหลังดีเลย์ของจอที่เพิ่งเปิด
+                if cfg["LAUNCH_DELAY"] > 0:
+                    countdown(cfg["LAUNCH_DELAY"], f"Boot Delay ({clone_id})")
+            else:
+                print(f"{RED} [!] {clone_id} suspended for 5 mins (Max retries reached).{RESET}")
+                clients_last_seen[clone_id] = time.time() + 300 
+
+        if action_taken:
+            print(f"{CYAN}----------------------------------------{RESET}")
+
+        # 4. รอเวลาเพื่อวนลูปเช็คใหม่ (แสดงนับถอยหลังบรรทัดเดียว)
+        countdown(cfg["LOOP_DELAY"], "Next system scan in")
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
