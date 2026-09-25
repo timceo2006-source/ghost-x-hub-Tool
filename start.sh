@@ -41,7 +41,9 @@ echo "Loading system... Please wait."
 
 pkg update -y > /dev/null 2>&1
 pkg install python openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
-pip install flask > /dev/null 2>&1
+
+# [UPDATED] ติดตั้งไลบรารีที่จำเป็นสำหรับระบบความปลอดภัย
+pip install flask requests cryptography > /dev/null 2>&1
 
 if [ ! -f "$SETTING_FILE" ]; then
     echo "MODE=NORMAL" > "$SETTING_FILE"
@@ -59,11 +61,15 @@ pkill -9 -f python
 killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
-rm -f main.py config.py injector.py auth.py
+# ==========================================
+# ดาวน์โหลดสคริปต์ทั้งหมด รวมถึงระบบความปลอดภัย
+# ==========================================
+rm -f main.py config.py injector.py auth.py pwf_license.py
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/main.py" -o main.py > /dev/null 2>&1
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/config.py" -o config.py > /dev/null 2>&1
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/injector.py" -o injector.py > /dev/null 2>&1
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/auth.py" -o auth.py > /dev/null 2>&1
+curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/pwf_license.py" -o pwf_license.py > /dev/null 2>&1
 
 ssh -o StrictHostKeyChecking=no -R 80:localhost:5000 serveo.net > "$CONFIG_DIR/tunnel.log" 2>&1 &
 
@@ -90,7 +96,7 @@ if [ ! -f "$CONFIG_DIR/apps.txt" ]; then
 fi
 
 # ==========================================
-# [NEW] ระบบดึงข้อมูลวันหมดอายุคีย์ล่วงหน้า
+# ระบบดึงข้อมูลวันหมดอายุคีย์ล่วงหน้า
 # ==========================================
 echo "Fetching License Info..."
 python -c "
@@ -109,7 +115,6 @@ except Exception:
     print('Unknown (Check pwf_license.py)')
 " > "$CONFIG_DIR/key_expiry.txt" 2>/dev/null
 
-# [FIXED] รีเซ็ตสถานะ Terminal เพื่อแก้บัคตัวหนังสือไหลเป็นขั้นบันได
 stty sane 2>/dev/null
 
 # ==========================================
@@ -120,7 +125,6 @@ while true; do
     MODE_STATUS=$(grep "^MODE=" "$SETTING_FILE" | cut -d'=' -f2)
     MAP_ID=$(grep "^MAP_ID=" "$SETTING_FILE" | cut -d'=' -f2)
     
-    # ดึงข้อความมาแบบตัดช่องว่างบรรทัดทิ้งให้หมด
     KEY_EXPIRY=$(cat "$CONFIG_DIR/key_expiry.txt" 2>/dev/null | tr -d '\r\n')
     if [ -z "$KEY_EXPIRY" ]; then
         KEY_EXPIRY="Unknown Error"
