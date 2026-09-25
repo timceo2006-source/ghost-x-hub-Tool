@@ -8,18 +8,26 @@ from config import load_apps, get_settings, CONFIG_DIR
 from injector import inject_cookie
 from auth import get_switch_data
 
-# ซ่อนข้อความแจ้งเตือนของ Flask แบบปลอดภัย
-import click
-def secho(*args, **kwargs):
-    pass
-click.echo = secho
-click.secho = secho
+# ==========================================
+# 1. ระบบกำจัดตัวแปรผี (ป้องกัน Error WERKZEUG_SERVER_FD)
+# ==========================================
+os.environ.pop('WERKZEUG_RUN_MAIN', None)
+os.environ.pop('WERKZEUG_SERVER_FD', None)
 
 app = Flask(__name__)
+
+# ==========================================
+# 2. ปิดข้อความของ Flask (Serving, Debug, Warning)
+# ==========================================
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
-log.disabled = True
 app.logger.disabled = True
+
+try:
+    import flask.cli
+    flask.cli.show_server_banner = lambda *args: None
+except:
+    pass
 
 clients_last_seen = {}
 clients_retry_count = {}
@@ -95,7 +103,7 @@ def countdown(t, msg):
     sys.stdout.flush()
 
 def auto_rejoin_checker():
-    time.sleep(2) 
+    time.sleep(1) 
     
     while True:
         current_time = time.time()
@@ -110,7 +118,7 @@ def auto_rejoin_checker():
         for clone_id in APPS_PACKAGE_NAMES.keys():
             sys.stdout.write(f"\r{WHITE} [>] Verifying {clone_id}...{' ' * 10}\r")
             sys.stdout.flush()
-            time.sleep(0.4) 
+            time.sleep(0.3) 
             
             last_seen = clients_last_seen.get(clone_id, 0)
             d_name = clients_usernames.get(clone_id, clone_id)
@@ -130,7 +138,6 @@ def auto_rejoin_checker():
             
             if retry_count < MAX_RETRIES:
                 print(f"{YELLOW} [!] Recovering {clone_id} (Attempt {retry_count + 1}/{MAX_RETRIES}){RESET}")
-                
                 print(f"{WHITE}  |- Terminating old process...{RESET}")
                 os.system(f"su -c 'am force-stop {package_name}' > /dev/null 2>&1")
                 time.sleep(1)
@@ -164,9 +171,5 @@ def auto_rejoin_checker():
 
 if __name__ == '__main__':
     threading.Thread(target=auto_rejoin_checker, daemon=True).start()
-    # ปิด warning และ banner ให้เงียบที่สุด
-    cli = sys.modules.get('flask.cli', None)
-    if cli:
-        cli.show_server_banner = lambda *x: None
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, use_reloader=False)
     
