@@ -82,9 +82,10 @@ while true; do
     echo -e "${CYAN}========================================${RESET}"
     echo -e " [1] Start System"
     echo -e " [2] Rescan Apps"
-    echo -e " [3] Settings Configuration"
-    echo -e " [4] Toggle Mode (Normal / Auto-Switch)"
-    echo -e " [5] Kill All Apps"
+    echo -e " [3] Set Target Map (Place ID)"
+    echo -e " [4] System Delays & Timeouts"
+    echo -e " [5] Toggle Mode (Normal / Auto-Switch)"
+    echo -e " [6] Kill All Apps"
     echo -e " [0] Exit"
     echo -e "${CYAN}========================================${RESET}"
     read -p " Select Option: " opt
@@ -126,26 +127,48 @@ while true; do
         3)
             clear
             echo -e "${CYAN}========================================${RESET}"
-            echo -e "${WHITE}             CONFIGURATION              ${RESET}"
+            echo -e "${WHITE}           MAP CONFIGURATION            ${RESET}"
             echo -e "${CYAN}========================================${RESET}"
-            read -p " Map ID (Blank to skip): " in_map
-            read -p " Launch Delay (Secs) [Default 15]: " in_ld
-            read -p " Loop Delay (Secs) [Default 60]: " in_loop
-            read -p " Timeout (Secs) [Default 40]: " in_time
-            
-            in_ld=${in_ld:-15}
-            in_loop=${in_loop:-60}
-            in_time=${in_time:-40}
+            echo -e " Current Map ID: ${WHITE}${MAP_ID:-None}${RESET}"
+            echo -e "${CYAN}----------------------------------------${RESET}"
+            read -p " Enter New Map ID (Leave blank to clear): " in_map
             
             sed -i "s/^MAP_ID=.*/MAP_ID=$in_map/" "$SETTING_FILE"
+            
+            echo -e "\n${GREEN}[+] Map ID updated successfully.${RESET}"
+            sleep 1
+            ;;
+        4)
+            clear
+            echo -e "${CYAN}========================================${RESET}"
+            echo -e "${WHITE}         DELAY & TIMEOUT SETUP          ${RESET}"
+            echo -e "${CYAN}========================================${RESET}"
+            
+            # ดึงค่าปัจจุบันมาแสดง
+            CUR_LD=$(grep "^LAUNCH_DELAY=" "$SETTING_FILE" | cut -d'=' -f2)
+            CUR_LOOP=$(grep "^LOOP_DELAY=" "$SETTING_FILE" | cut -d'=' -f2)
+            CUR_TIME=$(grep "^TIMEOUT=" "$SETTING_FILE" | cut -d'=' -f2)
+            
+            echo -e " ${WHITE}* Press [ENTER] to keep current value${RESET}"
+            echo -e "${CYAN}----------------------------------------${RESET}"
+            
+            read -p " Launch Delay (Secs) [Current: $CUR_LD]: " in_ld
+            read -p " Loop Delay (Secs) [Current: $CUR_LOOP]: " in_loop
+            read -p " Timeout (Secs) [Current: $CUR_TIME]: " in_time
+            
+            # ถ้าผู้ใช้กด Enter ว่างๆ ให้ใช้ค่าเดิม
+            in_ld=${in_ld:-$CUR_LD}
+            in_loop=${in_loop:-$CUR_LOOP}
+            in_time=${in_time:-$CUR_TIME}
+            
             sed -i "s/^LAUNCH_DELAY=.*/LAUNCH_DELAY=$in_ld/" "$SETTING_FILE"
             sed -i "s/^LOOP_DELAY=.*/LOOP_DELAY=$in_loop/" "$SETTING_FILE"
             sed -i "s/^TIMEOUT=.*/TIMEOUT=$in_time/" "$SETTING_FILE"
             
-            echo -e "\n${GREEN}[+] Settings Saved.${RESET}"
+            echo -e "\n${GREEN}[+] System delays updated successfully.${RESET}"
             sleep 1
             ;;
-        4)
+        5)
             if [ "$MODE_STATUS" == "NORMAL" ]; then
                 sed -i "s/^MODE=.*/MODE=AUTO_SWITCH/" "$SETTING_FILE"
                 app_count=$(grep -c . "$CONFIG_DIR/apps.txt")
@@ -157,7 +180,7 @@ while true; do
             fi
             sleep 1
             ;;
-        5)
+        6)
             echo -e "\n${WHITE}[>] Terminating processes...${RESET}"
             su -c 'pm list packages | grep roblox | cut -d":" -f2 | xargs -I {} am force-stop {}'
             echo -e "${GREEN}[+] All apps terminated.${RESET}"
@@ -166,6 +189,10 @@ while true; do
         0)
             clear
             exit 0
+            ;;
+        *)
+            echo -e "\n${RED}[!] Invalid Option!${RESET}"
+            sleep 1
             ;;
     esac
 done
