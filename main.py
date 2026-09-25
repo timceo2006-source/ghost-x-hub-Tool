@@ -22,38 +22,24 @@ except ImportError:
 LICENSE_FILE = os.path.join(CONFIG_DIR, "license.key")
 
 def verify_license():
-    client = PWFLicense()
-    
-    while True:
-        user_key = ""
-        if os.path.exists(LICENSE_FILE):
-            with open(LICENSE_FILE, "r") as f:
-                user_key = f.read().strip()
-                
-        if not user_key:
-            sys.stdout.write(f"\033[H\033[J")
-            print(f"\033[96m========================================\033[0m")
-            print(f"\033[97m           GHOST X HUB - AUTH           \033[0m")
-            print(f"\033[96m========================================\033[0m")
-            user_key = input(f"\033[93m [?] Enter License Key: \033[0m").strip()
-            
-            if not user_key:
-                continue
-                
-        print(f"\033[97m [>] Verifying License...\033[0m")
-        result = client.login(user_key)
+    if not os.path.exists(LICENSE_FILE):
+        print("\033[91m [!] No License Key found! Please run start.sh again.\033[0m")
+        sys.exit(1)
         
-        if result.get("success"):
-            with open(LICENSE_FILE, "w") as f:
-                f.write(user_key)
-            print(f"\033[92m [+] License Verified! Welcome to Ghost X Hub.\033[0m")
-            time.sleep(1)
-            break
-        else:
-            print(f"\033[91m [-] Authentication Failed: {result.get('message', 'Invalid Key')}\033[0m")
-            if os.path.exists(LICENSE_FILE):
-                os.remove(LICENSE_FILE)
-            time.sleep(2)
+    with open(LICENSE_FILE, "r") as f:
+        user_key = f.read().strip()
+        
+    print(f"\033[97m [>] Verifying License with PWF Auth...\033[0m")
+    
+    client = PWFLicense()
+    result = client.login(user_key)
+    
+    if result.get("success"):
+        print(f"\033[92m [+] License Verified! Welcome to Ghost X Hub.\033[0m")
+    else:
+        print(f"\033[91m [-] Authentication Failed: {result.get('message', 'Invalid Key')}\033[0m")
+        os.remove(LICENSE_FILE)
+        sys.exit(1)
             
     def on_revoked(code, message):
         print(f"\n\033[91m========================================\033[0m")
@@ -61,6 +47,7 @@ def verify_license():
         print(f"\033[93m Reason: {message}\033[0m")
         print(f"\033[91m========================================\033[0m")
         print("\033[97m [>] Terminating Ghost X Hub Engine...\033[0m")
+        print("\033[97m [>] Roblox instances will remain open but unmanaged.\033[0m")
         os._exit(0)
         
     threading.Thread(target=client.run_heartbeat, args=(on_revoked,), daemon=True).start()
@@ -107,14 +94,10 @@ for cid in APPS_PACKAGE_NAMES.keys():
     clients_usernames[cid] = cid 
     clients_combo_index[cid] = 0
 
-# ==========================================
-# [NEW] ระบบจัดเรียงจอ (Auto-Grid Layout)
-# ==========================================
 def arrange_window(package_name, clone_index):
-    # ปรับแต่งขนาดจอตรงนี้ได้เลย (หน่วยเป็น Pixel)
-    W = 360   # ความกว้างของ 1 จอ
-    H = 480   # ความสูงของ 1 จอ
-    COLS = 2  # จำนวนจอต่อ 1 แถว (จัดเรียงแบบ ซ้าย-ขวา)
+    W = 360
+    H = 480
+    COLS = 2
     
     row = (clone_index - 1) // COLS
     col = (clone_index - 1) % COLS
@@ -124,7 +107,6 @@ def arrange_window(package_name, clone_index):
     right = left + W
     bottom = top + H
     
-    # คำสั่งดึง Task ID ของแอป และสั่งปรับขนาดผ่าน Window Manager
     cmd = f"su -c \"dumpsys activity tasks | grep '{package_name}' | grep -o 'taskId=[0-9]*' | cut -d'=' -f2 | head -n 1\""
     task_id = os.popen(cmd).read().strip()
     
@@ -290,9 +272,8 @@ def auto_rejoin_checker():
                 else:
                     os.system(f"su -c 'monkey -p {package_name} -c android.intent.category.LAUNCHER 1' > /dev/null 2>&1")
                     
-                # [NEW] จัดหน้าต่างแอปให้เล็กลงและเข้าที่
                 print(f"{WHITE}  |- Arranging window layout...{RESET}")
-                time.sleep(4) # รอให้แอปเปิดติดสักพักถึงจะมี Task ID
+                time.sleep(4) 
                 try:
                     c_idx = int(clone_id.split('_')[1])
                 except:
