@@ -40,10 +40,11 @@ clear
 echo "Loading system... Please wait."
 
 pkg update -y > /dev/null 2>&1
-pkg install python openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
+# [FIXED] เพิ่ม python-cryptography และ python-requests เข้าไปติดตั้งผ่าน pkg ตรงๆ เพื่อความเสถียร
+pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
-# [UPDATED] ติดตั้งไลบรารีที่จำเป็นสำหรับระบบความปลอดภัย
-pip install flask requests cryptography > /dev/null 2>&1
+# ติดตั้งเฉพาะ flask ผ่าน pip พอ
+pip install flask > /dev/null 2>&1
 
 if [ ! -f "$SETTING_FILE" ]; then
     echo "MODE=NORMAL" > "$SETTING_FILE"
@@ -62,7 +63,7 @@ killall -9 ssh 2>/dev/null
 rm -f "$CONFIG_DIR/tunnel.log"
 
 # ==========================================
-# ดาวน์โหลดสคริปต์ทั้งหมด รวมถึงระบบความปลอดภัย
+# ดาวน์โหลดสคริปต์ทั้งหมดจาก GitHub
 # ==========================================
 rm -f main.py config.py injector.py auth.py pwf_license.py
 curl -sL "https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main/main.py" -o main.py > /dev/null 2>&1
@@ -111,8 +112,8 @@ try:
         print(res.get('expires', res.get('expiry', 'Valid (Active)')))
     else:
         print('Invalid or Expired')
-except Exception:
-    print('Unknown (Check pwf_license.py)')
+except Exception as e:
+    print('Error loading key')
 " > "$CONFIG_DIR/key_expiry.txt" 2>/dev/null
 
 stty sane 2>/dev/null
