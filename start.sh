@@ -37,37 +37,32 @@ clear
 echo "Loading system... Please wait."
 
 # ==========================================
-# [UPDATED] ติดตั้งเครื่องมือทั้งหมดแบบรวดเดียวจบ
+# [ตัวจบปัญหา] ติดตั้งไลบรารีแบบสำเร็จรูปผ่าน pkg ของ Termux
 # ==========================================
+echo -e "${WHITE}[>] Installing core packages (No Compile Required)...${RESET}"
 pkg update -y > /dev/null 2>&1
-echo -e "${WHITE}[>] Installing core packages... (This may take a moment)${RESET}"
-pkg install rust binutils libffi-dev clang make openssl-dev python python-cryptography openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
 
-# ==========================================
-# ระบบเช็คไลบรารีแบบปลอดภัย ไม่ติดลูป
-# ==========================================
+# ติดตั้ง python, cryptography และ requests แบบสำเร็จรูป (ไม่ใช้ pip ป้องกันการค้าง)
+pkg install python python-cryptography python-requests openssh psmisc lsof ncurses-utils curl sqlite nano -y > /dev/null 2>&1
+
+# ติดตั้งเฉพาะ flask ผ่าน pip เพราะไฟล์เล็กและไม่มีปัญหา
+pip install flask > /dev/null 2>&1
+
 echo -e "${WHITE}[>] Verifying system dependencies...${RESET}"
-
 if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
-    echo -e "${YELLOW}[!] Missing Python modules. Installing... (This may take a few minutes)${RESET}"
-    pip install --upgrade pip
-    pip install flask requests cryptography
-    
-    if ! python -c "import flask, requests, cryptography" 2>/dev/null; then
-        echo -e "${RED}[!] Failed to install dependencies. Please check your internet connection.${RESET}"
-        exit 1
-    fi
+    echo -e "${RED}[!] Critical Error: Failed to load Python modules.${RESET}"
+    echo -e "${YELLOW}Please restart your Cloud Phone or clear Termux data and try again.${RESET}"
+    exit 1
 fi
 
-# โหลดไฟล์สคริปต์ใหม่
+# ==========================================
+# ดาวน์โหลดไฟล์สคริปต์จาก GitHub
+# ==========================================
 GITHUB_URL="https://raw.githubusercontent.com/timceo2006-source/ghost-x-hub-Tool/refs/heads/main"
 FILES=("main.py" "config.py" "injector.py" "auth.py" "pwf_license.py")
 
 for file in "${FILES[@]}"; do
-    if [ ! -s "$file" ]; then
-        echo -e "${YELLOW}[!] Downloading missing file: $file ...${RESET}"
-        curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
-    fi
+    curl -sL "$GITHUB_URL/$file" -o "$file" > /dev/null 2>&1
 done
 
 echo -e "${GREEN}[+] All files and modules verified!${RESET}"
